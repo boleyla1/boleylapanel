@@ -1,12 +1,11 @@
-"""
-FastAPI Main Application Entry Point
-"""
-
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+
+from app.db.database import SessionLocal
+from app.models import User
 from .config import settings
 
-# Create FastAPI application
 app = FastAPI(
     title=settings.app_name,
     description="Professional VPN Panel Management System",
@@ -16,7 +15,6 @@ app = FastAPI(
     debug=settings.debug,
 )
 
-# Configure CORS with settings
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -28,7 +26,6 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    """Root endpoint"""
     return {
         "message": f"Welcome to {settings.app_name} API",
         "version": settings.app_version,
@@ -39,13 +36,11 @@ async def root():
 
 @app.get("/ping")
 async def ping():
-    """Health check endpoint"""
     return {"status": "ok", "message": "pong"}
 
 
 @app.get("/api/health")
 async def health_check():
-    """Detailed health check endpoint"""
     return {
         "status": "healthy",
         "app_name": settings.app_name,
@@ -59,8 +54,32 @@ async def health_check():
     }
 
 
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@app.get("/api/users")
+def get_all_users(db: Session = Depends(get_db)):
+    users = db.query(User).all()
+    result = []
+    for u in users:
+        result.append({
+            "id": u.id,
+            "username": u.username,
+            "email": u.email,
+            "full_name": u.full_name,
+            "is_active": u.is_active,
+            "role": u.role.value
+        })
+    return {"users": result}
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         app,
         host=settings.host,
