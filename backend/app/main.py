@@ -4,7 +4,7 @@ FastAPI Main Application Entry Point
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.config import settings
+from .config import settings
 
 # Create FastAPI application
 app = FastAPI(
