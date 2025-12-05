@@ -3,7 +3,7 @@ Database engine and session configuration
 Uses SQLAlchemy 2.0 with sync API
 """
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator
 
@@ -24,6 +24,15 @@ SessionLocal = sessionmaker(
     bind=engine,
 )
 
+# @event.listens_for(engine, "connect")
+# def set_timezone(dbapi_conn, connection_record):
+#     """تنظیم UTC برای هر connection جدید"""
+#     cursor = dbapi_conn.cursor()
+#     cursor.execute("SET time_zone='+00:00'")
+#     cursor.close()
+
+# Create SessionLocal class
+# SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db() -> Generator[Session, None, None]:
     """
