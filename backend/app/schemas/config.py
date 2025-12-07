@@ -8,11 +8,11 @@ class ConfigBase(BaseModel):
     user_id: int
     server_id: int
     protocol: str
-    config_data: dict
+    config_data: Optional[dict] = None
     traffic_limit_gb: Optional[int] = None
     traffic_used_gb: Optional[int] = None
     expiry_date: Optional[datetime] = None
-    is_active: bool = True
+    is_active: Optional[bool] = True
 
 
 class ConfigCreate(ConfigBase):
@@ -32,6 +32,8 @@ class ConfigUpdate(BaseModel):
 
 class ConfigResponse(ConfigBase):
     id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

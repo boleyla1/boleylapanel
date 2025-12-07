@@ -1,46 +1,21 @@
-"""
-Config database model
-"""
-from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON, ForeignKey
 from sqlalchemy.orm import relationship
-from app.db.base import BaseModel, utcnow
+from app.db.base import Base
 
-
-class Config(BaseModel):
-    """VPN Configuration model"""
+class Config(Base):
     __tablename__ = "configs"
 
-    name = Column(String(100), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    server_id = Column(Integer, ForeignKey("servers.id", ondelete="CASCADE"), nullable=False)
-
-    config_data = Column(Text, nullable=False)
-    protocol = Column(String(50), nullable=False, default="vmess")
-
-    traffic_limit_gb = Column(Float, nullable=True)
-    traffic_used_gb = Column(Float, default=0.0, nullable=False)
-
-    expiry_date = Column(DateTime, nullable=True)
-
-    is_active = Column(Boolean, default=True, nullable=False)
-
-    # Relationships
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    server_id = Column(Integer, ForeignKey("servers.id"), nullable=False)
+    protocol = Column(String(50), nullable=False)
+    config_data = Column(JSON)
+    traffic_limit_gb = Column(Integer, default=0)
+    traffic_used_gb = Column(Integer, default=0)
+    expiry_date = Column(DateTime)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime)
+    updated_at = Column(DateTime)
     user = relationship("User", back_populates="configs")
     server = relationship("Server", back_populates="configs")
-
-    def is_expired(self) -> bool:
-        """چک کردن انقضای کانفیگ (timezone-safe)"""
-        if self.expiry_date is None:
-            return False
-        return datetime.now(timezone.utc).replace(tzinfo=None) > self.expiry_date
-
-    def days_until_expiry(self) -> int | None:
-        """تعداد روز تا انقضا"""
-        if self.expiry_date is None:
-            return None
-        delta = self.expiry_date - datetime.now(timezone.utc).replace(tzinfo=None)
-        return max(0, delta.days)
-
-    def __repr__(self):
-        return f"<Config(id={self.id}, name='{self.name}', user_id={self.user_id})>"

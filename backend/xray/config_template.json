@@ -1,0 +1,39 @@
+    {
+      "log": {
+        "loglevel": "warning"
+      },
+      "inbounds": [
+        {
+          "port": 10000,
+          "protocol": "vless",
+          "settings": {
+            "clients": [
+              {
+                "id": "YOUR_UUID",
+                "flow": "xtls-rprx-vision"
+              }
+            ],
+            "decryption": "none"
+          },
+          "streamSettings": {
+            "network": "tcp",
+            "security": "tls",
+            "tlsSettings": {
+              "serverName": "example.com",
+              "certificates": [
+                {
+                  "certificateFile": "/path/to/fullchain.pem",
+                  "keyFile": "/path/to/private.key"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "outbounds": [
+        {
+          "protocol": "freedom",
+          "settings": {}
+        }
+      ]
+    }

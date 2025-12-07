@@ -78,6 +78,7 @@ def get_all_users(db: Session = Depends(get_db)):
         })
     return {"users": result}
 
+
 app.include_router(api_router, prefix="/api/v1")
 
 if __name__ == "__main__":

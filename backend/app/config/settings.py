@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, ClassVar
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import json
@@ -43,6 +43,15 @@ class Settings(BaseSettings):
         default=30,
         description="Access token expiration time in minutes"
     )
+
+    # XRAY Specific Settings
+    XRAY_CONFIG_TEMPLATE_PATH: ClassVar[str] = "xray/config_template.json"
+    XRAY_CONFIG_OUTPUT_PATH: ClassVar[str] = "xray/output_configs"
+    XRAY_SERVICE_NAME: str = "xray"
+    XRAY_BASE_PORT: int = 10000
+    ENABLE_XRAY_SERVICE: bool = True
+
+    # You might also want to add a base port for Xray clients
 
     # ---- Validators ----
 

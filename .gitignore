@@ -66,3 +66,6 @@ ssl/
 tmp/
 temp/
 *.tmp
+
+#  elembic
+backend/alembic/versions
