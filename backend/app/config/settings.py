@@ -1,7 +1,8 @@
 from typing import List
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import json
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -26,14 +27,24 @@ class Settings(BaseSettings):
     db_user: str = "boleyla"
     db_password: str = "StrongPassword123"
 
-    # Security
-    secret_key: str = "change-this-secret-key"
-    jwt_secret_key: str = "change-this-jwt-secret"
-    jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 30
-
     # CORS
     cors_origins: str = '["http://localhost:3000"]'
+
+    # JWT Settings (⚡ نسخه کاملاً صحیح و هماهنگ با auth.py)
+    SECRET_KEY: str = Field(
+        default="your-secret-key-change-in-production",
+        description="Secret key for JWT encoding"
+    )
+    ALGORITHM: str = Field(
+        default="HS256",
+        description="JWT signing algorithm"
+    )
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
+        default=30,
+        description="Access token expiration time in minutes"
+    )
+
+    # ---- Validators ----
 
     @field_validator("cors_origins")
     @classmethod
@@ -45,12 +56,18 @@ class Settings(BaseSettings):
                 return [v]
         return v
 
+    # ---- Properties ----
+
     @property
     def cors_origins_list(self) -> List[str]:
         return self.cors_origins
 
     @property
     def database_url(self) -> str:
-        return f"mysql+pymysql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}?charset=utf8mb4"
+        return (
+            f"mysql+pymysql://{self.db_user}:{self.db_password}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}?charset=utf8mb4"
+        )
+
 
 settings = Settings()

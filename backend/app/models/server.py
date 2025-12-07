@@ -5,6 +5,8 @@ Server model for VPN/Proxy server management
 from sqlalchemy import Column, String, Integer, Boolean, Text, Enum as SQLEnum
 import enum
 
+from sqlalchemy.orm import relationship
+
 from app.db.base import BaseModel
 
 
@@ -57,6 +59,7 @@ class Server(BaseModel):
     api_url = Column(String(255), nullable=True)
     api_key = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
+    configs = relationship("Config", back_populates="server", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Server(id={self.id}, name='{self.name}', type='{self.type.value}', status='{self.status.value}')>"

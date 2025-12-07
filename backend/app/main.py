@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
+from app.api.v1.api import api_router
 from app.db.database import SessionLocal
 from app.models import User
 from .config import settings
@@ -76,6 +77,8 @@ def get_all_users(db: Session = Depends(get_db)):
             "role": u.role.value
         })
     return {"users": result}
+
+app.include_router(api_router, prefix="/api/v1")
 
 if __name__ == "__main__":
     import uvicorn
