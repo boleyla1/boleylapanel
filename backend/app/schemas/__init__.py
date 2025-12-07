@@ -1,49 +1,68 @@
-"""
-Pydantic schemas for API request/response validation
-"""
+# app/schemas/__init__.py
+
 from app.schemas.user import (
     UserBase,
     UserCreate,
     UserUpdate,
-    UserInDB,
     UserResponse,
+    UserExtended,
+    UserOut,
+    UserInDB,
     Token,
     TokenData,
+    UserResetTraffic,
+    UserExtendExpiry,
+    UserAddTraffic,
+    TrafficInfo,
+)
+from app.schemas.traffic import (
+    TrafficHistoryResponse,
+    UserActivityLogResponse,
+    TrafficStatsResponse,
 )
 from app.schemas.server import (
     ServerBase,
     ServerCreate,
     ServerUpdate,
-    ServerInDB,
     ServerResponse,
 )
 from app.schemas.config import (
     ConfigBase,
     ConfigCreate,
     ConfigUpdate,
-    ConfigInDB,
     ConfigResponse,
 )
 
 __all__ = [
-    # User
+    # User schemas
     "UserBase",
     "UserCreate",
     "UserUpdate",
-    "UserInDB",
     "UserResponse",
+    "UserExtended",
+    "UserOut",
+    "UserInDB",
     "Token",
     "TokenData",
-    # Server
+    "UserResetTraffic",
+    "UserExtendExpiry",
+    "UserAddTraffic",
+    "TrafficInfo",
+
+    # Traffic schemas
+    "TrafficHistoryResponse",
+    "UserActivityLogResponse",
+    "TrafficStatsResponse",
+
+    # Server schemas
     "ServerBase",
     "ServerCreate",
     "ServerUpdate",
-    "ServerInDB",
     "ServerResponse",
-    # Config
+
+    # Config schemas
     "ConfigBase",
     "ConfigCreate",
     "ConfigUpdate",
-    "ConfigInDB",
     "ConfigResponse",
 ]

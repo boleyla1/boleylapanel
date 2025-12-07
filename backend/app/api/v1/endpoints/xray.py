@@ -7,4 +7,4 @@ router = APIRouter()
 
 @router.post("/sync-xray-config")
 def sync_xray_config(xray_service: XrayService = Depends(get_xray_service)):
-    return xray_service.sync_config()
+    return xray_service.sync_database_to_xray()

@@ -11,7 +11,7 @@ app = FastAPI(
     title=settings.app_name,
     description="Professional VPN Panel Management System",
     version=settings.app_version,
-    docs_url="/api/docs",
+    docs_url="/docs",
     redoc_url="/api/redoc",
     debug=settings.debug,
 )

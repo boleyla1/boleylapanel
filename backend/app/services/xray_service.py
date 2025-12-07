@@ -3,7 +3,15 @@ from pathlib import Path
 import os
 from sqlalchemy.orm import Session
 from app.crud import config
-# from app.models.config import Config
+
+
+def deep_update(d: dict, u: dict) -> dict:
+    for k, v in u.items():
+        if isinstance(v, dict) and k in d and isinstance(d[k], dict):
+            deep_update(d[k], v)
+        else:
+            d[k] = v
+    return d
 
 
 class XrayService:
@@ -15,10 +23,12 @@ class XrayService:
         self.template_path = Path(template_path)
         if not self.template_path.is_absolute():
             self.template_path = cwd / self.template_path
+
         self.output_path = Path(output_path)
         if not self.output_path.is_absolute():
             self.output_path = cwd / self.output_path
         self.output_path.mkdir(parents=True, exist_ok=True)
+
         self.output_file = self.output_path / "config.json"
         self.service_name = service_name
         self.base_port = base_port
@@ -35,7 +45,8 @@ class XrayService:
                 xray_config = json.load(f)
 
             if config_obj:
-                xray_config.update(config_obj)
+
+                deep_update(xray_config, config_obj)
 
             self._save_xray_config_to_file(xray_config)
             return {"status": "success", "message": "Xray config synced successfully."}
@@ -51,7 +62,6 @@ class XrayService:
         print("========== XRAY DEBUG START ==========")
 
         try:
-            # 1) دیتابیس را لود کن
             print("[XRAY DEBUG] Loading configs from DB...")
             configs = self.config.get_multi(self.db)
             print(f"[XRAY DEBUG] Found {len(configs)} configs in database")
@@ -63,14 +73,14 @@ class XrayService:
                 print(f"[XRAY DEBUG] Processing config id={config_obj.id}")
 
                 try:
-                    # تبدیل ORM به dict
+
                     config_dict = {
                         "id": config_obj.id,
                         "name": config_obj.name,
                         "user_id": config_obj.user_id,
                         "server_id": config_obj.server_id,
                         "protocol": config_obj.protocol,
-                        "config_data": config_obj.config_data,
+                        "config_data": config_obj.config_data or {},  # جلوگیری از None
                         "traffic_limit_gb": config_obj.traffic_limit_gb,
                         "traffic_used_gb": config_obj.traffic_used_gb,
                         "expiry_date": str(config_obj.expiry_date),
@@ -79,7 +89,7 @@ class XrayService:
 
                     print("[XRAY DEBUG] Converted model to dict OK")
 
-                    # اجرای sync_config
+
                     print("[XRAY DEBUG] Calling sync_config() ...")
                     sync_result = self.sync_config(config_dict)
                     print("[XRAY DEBUG] sync_config() OK, result:", sync_result)
@@ -110,4 +120,3 @@ class XrayService:
             print("========== XRAY CRITICAL ERROR ==========")
             print("[XRAY CRASH] Exception in sync_database_to_xray:", e)
             raise e
-

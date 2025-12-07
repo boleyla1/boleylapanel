@@ -12,8 +12,10 @@ from app.crud.config import config as crud_config
 from app.core.database import get_xray_service
 from app.services.xray_service import XrayService
 from app.crud.config import config
+
 router = APIRouter()
 from app.api import deps
+
 
 # -------------------------------
 # List configs
@@ -23,7 +25,6 @@ def list_configs(
         db: Session = Depends(get_db_session),
         current_user: User = Depends(get_current_active_user),
 ):
-
     if current_user.is_admin:
         return crud_config.get_multi(db)
 
