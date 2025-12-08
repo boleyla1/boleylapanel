@@ -4,76 +4,107 @@ set -e
 REPO_URL="https://github.com/boleyla1/boleylapanel.git"
 INSTALL_DIR="boleylapanel"
 
-echo "🚀 Installing BoleylaPanel Backend"
+echo "🚀 BoleylaPanel Backend Installation"
+echo ""
 
-# Update prerequisites
+############################################
+# Network Checks
+############################################
+echo "🌐 Checking network connectivity..."
+if ! command -v host &>/dev/null; then
+    echo "📦 Installing DNS utility..."
+    sudo apt update
+    sudo apt install -y dnsutils
+fi
+if ! host google.com &>/dev/null; then
+    echo "❌ DNS resolution failed! Fix DNS manually."
+    exit 1
+fi
+if ! ping -c 1 1.1.1.1 &>/dev/null; then
+    echo "❌ No internet connection!"
+    exit 1
+fi
+echo "✅ Network OK"
+echo ""
+
+############################################
+# Install prerequisites
+############################################
+echo "📦 Installing prerequisites..."
 sudo apt update
 sudo apt install -y git curl wget unzip openssl
+echo "✅ Prerequisites installed"
+echo ""
 
-# Install Docker if missing
+############################################
+# Install Docker if needed
+############################################
 if ! command -v docker &> /dev/null; then
+    echo "🐳 Docker not found. Installing Docker..."
     curl -fsSL https://get.docker.com -o get-docker.sh
     sudo sh get-docker.sh
     rm get-docker.sh
     sudo usermod -aG docker $USER
+    echo "✅ Docker installed"
 fi
 
-# Install Docker Compose if missing
+############################################
+# Install Docker Compose if needed
+############################################
 if ! command -v docker-compose &> /dev/null; then
+    echo "🐋 Docker Compose not found. Installing..."
     DOCKER_COMPOSE_VER=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep tag_name | cut -d '"' -f 4)
     sudo curl -L "https://github.com/docker/compose/releases/download/$DOCKER_COMPOSE_VER/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
     sudo chmod +x /usr/local/bin/docker-compose
+    echo "✅ Docker Compose installed"
 fi
 
-# Clone project
+############################################
+# Clone repository
+############################################
 if [ ! -d "$INSTALL_DIR" ]; then
+    echo "📥 Cloning repository..."
     git clone $REPO_URL $INSTALL_DIR
 fi
 cd $INSTALL_DIR/backend
 
-# Create dirs
+############################################
+# Create directories
+############################################
 mkdir -p logs xray/configs
 
-# User input
-read -p "DB Name [boleyla_panel]: " DB_NAME
+############################################
+# Interactive Configuration
+############################################
+read -p "Database Name [boleyla_panel]: " DB_NAME
 DB_NAME=${DB_NAME:-boleyla_panel}
-read -p "DB User [boleyla]: " DB_USER
+read -p "Database User [boleyla]: " DB_USER
 DB_USER=${DB_USER:-boleyla}
-
-# DB Password with confirmation
 while true; do
-    read -sp "DB Password: " DB_PASSWORD
+    read -sp "Database Password: " DB_PASSWORD
     echo ""
-    read -sp "Confirm DB Password: " DB_PASSWORD_CONFIRM
+    read -sp "Confirm Password: " DB_PASSWORD_CONFIRM
     echo ""
-    if [ "$DB_PASSWORD" = "$DB_PASSWORD_CONFIRM" ]; then
-        break
-    else
-        echo "❌ Passwords do not match! Try again."
-    fi
+    [ "$DB_PASSWORD" = "$DB_PASSWORD_CONFIRM" ] && [ -n "$DB_PASSWORD" ] && break
+    echo "❌ Passwords do not match or empty!"
 done
-
 JWT_SECRET=$(openssl rand -base64 32)
-
 read -p "Admin Username [admin]: " ADMIN_USERNAME
 ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
 read -p "Admin Email [admin@boleyla.local]: " ADMIN_EMAIL
 ADMIN_EMAIL=${ADMIN_EMAIL:-admin@boleyla.local}
-
-# Admin Password with confirmation
 while true; do
     read -sp "Admin Password: " ADMIN_PASSWORD
     echo ""
-    read -sp "Confirm Admin Password: " ADMIN_PASSWORD_CONFIRM
+    read -sp "Confirm Password: " ADMIN_PASSWORD_CONFIRM
     echo ""
-    if [ "$ADMIN_PASSWORD" = "$ADMIN_PASSWORD_CONFIRM" ]; then
-        break
-    else
-        echo "❌ Passwords do not match! Try again."
-    fi
+    [ "$ADMIN_PASSWORD" = "$ADMIN_PASSWORD_CONFIRM" ] && [ ${#ADMIN_PASSWORD} -ge 6 ] && break
+    echo "❌ Passwords do not match or too short!"
 done
 
-# Write .env
+############################################
+# Write .env file
+############################################
 cat > .env << EOF
 DB_HOST=mysql
 DB_PORT=3306
@@ -85,33 +116,31 @@ ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 API_V1_STR=/api/v1
 PROJECT_NAME=BoleylaPanel
+XRAY_API_HOST=0.0.0.0
+XRAY_API_PORT=10085
 ADMIN_USERNAME=${ADMIN_USERNAME}
 ADMIN_EMAIL=${ADMIN_EMAIL}
 ADMIN_PASSWORD=${ADMIN_PASSWORD}
 EOF
 
-# Configure Docker DNS
-sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
-{
-  "dns": ["8.8.8.8","8.8.4.4","1.1.1.1"]
-}
-EOF
-sudo systemctl daemon-reload
-sudo systemctl restart docker
-
-# Build & run
-docker-compose build --network host
+############################################
+# Docker build and run
+############################################
+docker-compose build
 docker-compose up -d
 
-# shellcheck disable=SC2034
-for _ in {1..30}; do
-    if docker-compose exec -T mysql mysqladmin ping -h"localhost" --silent 2>/dev/null; then break; fi
+############################################
+# Wait for MySQL
+############################################
+for i in {1..30}; do
+    if docker-compose exec -T mysql mysqladmin ping -h"localhost" --silent &>/dev/null; then break; fi
     sleep 2
 done
 
-
-# Migrations
+############################################
+# Run migrations
+############################################
 docker-compose exec -T backend alembic upgrade head
 docker-compose exec -T backend python scripts/init_db.py
 
-echo "✅ Installation finished"
+echo "✅ Installation completed successfully!"
