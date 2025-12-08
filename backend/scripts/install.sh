@@ -8,6 +8,13 @@ INSTALL_DIR="boleylapanel"
 echo "🚀 BoleylaPanel Backend Installation"
 echo "======================================"
 echo ""
+# Check if git is installed
+if ! command -v git &> /dev/null; then
+    echo "📦 Git is not installed. Installing..."
+    sudo apt update
+    sudo apt install git -y
+    echo "✅ Git installed successfully"
+fi
 
 # Check if running from curl
 if [ ! -f "docker-compose.yml" ]; then
