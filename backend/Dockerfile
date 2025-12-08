@@ -6,8 +6,6 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# نصب پیش‌نیازها + DNS درست برای pip install
-RUN echo "nameserver 8.8.8.8" > /etc/resolv.conf
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential curl unzip gcc python3-dev libpq-dev \
