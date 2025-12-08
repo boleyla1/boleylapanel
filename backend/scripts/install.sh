@@ -40,10 +40,17 @@ DB_NAME=${DB_NAME:-boleyla_panel}
 read -p "DB User [boleyla]: " DB_USER
 DB_USER=${DB_USER:-boleyla}
 
+# DB Password with confirmation
 while true; do
     read -sp "DB Password: " DB_PASSWORD
     echo ""
-    [ -n "$DB_PASSWORD" ] && break
+    read -sp "Confirm DB Password: " DB_PASSWORD_CONFIRM
+    echo ""
+    if [ "$DB_PASSWORD" = "$DB_PASSWORD_CONFIRM" ]; then
+        break
+    else
+        echo "❌ Passwords do not match! Try again."
+    fi
 done
 
 JWT_SECRET=$(openssl rand -base64 32)
@@ -53,10 +60,17 @@ ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
 read -p "Admin Email [admin@boleyla.local]: " ADMIN_EMAIL
 ADMIN_EMAIL=${ADMIN_EMAIL:-admin@boleyla.local}
 
+# Admin Password with confirmation
 while true; do
     read -sp "Admin Password: " ADMIN_PASSWORD
     echo ""
-    [ ${#ADMIN_PASSWORD} -ge 6 ] && break
+    read -sp "Confirm Admin Password: " ADMIN_PASSWORD_CONFIRM
+    echo ""
+    if [ "$ADMIN_PASSWORD" = "$ADMIN_PASSWORD_CONFIRM" ]; then
+        break
+    else
+        echo "❌ Passwords do not match! Try again."
+    fi
 done
 
 # Write .env
@@ -89,12 +103,12 @@ sudo systemctl restart docker
 docker-compose build --network host
 docker-compose up -d
 
-# Wait MySQL
 # shellcheck disable=SC2034
-for i in {1..30}; do
+for _ in {1..30}; do
     if docker-compose exec -T mysql mysqladmin ping -h"localhost" --silent 2>/dev/null; then break; fi
     sleep 2
 done
+
 
 # Migrations
 docker-compose exec -T backend alembic upgrade head
