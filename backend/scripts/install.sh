@@ -188,7 +188,8 @@ sleep 5   # wait a few seconds to ensure Docker is ready
 # Docker build & run with host network
 ############################################
 echo "🐋 Building Docker containers..."
-docker-compose build --network host
+docker-compose build
+
 
 echo "🚀 Starting services..."
 docker-compose up -d
