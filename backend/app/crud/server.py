@@ -1,51 +1,40 @@
+from typing import List
 from sqlalchemy.orm import Session
-from app.models.server import Server
-from app.schemas import ServerCreate, ServerUpdate
+from app.crud.base import CRUDBase
+from app.models.server import Server, ServerStatus
+from app.schemas.server import ServerCreate, ServerUpdate
 
 
-class CRUDServer:
+class CRUDServer(CRUDBase[Server, ServerCreate, ServerUpdate]):
 
-    def get(self, db: Session, server_id: int):
-        return db.query(Server).filter(Server.id == server_id).first()
-
-    def get_multi(self, db: Session, skip: int = 0, limit: int = 100):
-        return db.query(Server).offset(skip).limit(limit).all()
-
-    def create(self, db: Session, data: ServerCreate):
-        db_obj = Server(
-            name=data.name,
-            address=data.address,
-            port=data.port,
-            is_active=data.is_active,
+    def get_active_servers(
+            self, db: Session, *, skip: int = 0, limit: int = 100
+    ) -> List[Server]:
+        """دریافت سرورهای فعال"""
+        return (
+            db.query(Server)
+            .filter(Server.is_active.is_(True))
+            .offset(skip)
+            .limit(limit)
+            .all()
         )
-        db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
-        return db_obj
 
-    def update(self, db: Session, db_obj: Server, data: ServerUpdate):
-        if data.name is not None:
-            db_obj.name = data.name
+    def get_servers_by_status(
+            self, db: Session, *, status: str, skip: int = 0, limit: int = 100
+    ) -> List[Server]:
+        """دریافت سرورها بر اساس وضعیت"""
+        try:
+            status_enum = ServerStatus(status)
+        except ValueError:
+            return []
 
-        if data.address is not None:
-            db_obj.address = data.address
-
-        if data.port is not None:
-            db_obj.port = data.port
-
-        if data.is_active is not None:
-            db_obj.is_active = data.is_active
-
-        db.commit()
-        db.refresh(db_obj)
-        return db_obj
-
-    def remove(self, db: Session, server_id: int):
-        obj = self.get(db, server_id)
-        if obj:
-            db.delete(obj)
-            db.commit()
-        return obj
+        return (
+            db.query(Server)
+            .filter(Server.status == status_enum)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
 
 
-server = CRUDServer()
+server = CRUDServer(Server)

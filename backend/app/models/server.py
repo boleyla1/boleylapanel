@@ -1,65 +1,56 @@
-"""
-Server model for VPN/Proxy server management
-"""
+# app/models/server.py
 
-from sqlalchemy import Column, String, Integer, Boolean, Text, Enum as SQLEnum
-import enum
-
+from sqlalchemy import Column, Integer, String, Boolean, Enum as SQLEnum, Text, DateTime, func, BigInteger, Float
 from sqlalchemy.orm import relationship
-
-from app.db.base import BaseModel
+from app.db.base import Base
+import enum
 
 
 class ServerType(str, enum.Enum):
-    """Server type enumeration"""
     XRAY = "xray"
     V2RAY = "v2ray"
-    SHADOWSOCKS = "shadowsocks"
-    TROJAN = "trojan"
+    SINGBOX = "singbox"
 
 
 class ServerStatus(str, enum.Enum):
-    """Server status enumeration"""
-    ACTIVE = "active"
-    INACTIVE = "inactive"
+    ONLINE = "online"
+    OFFLINE = "offline"
     MAINTENANCE = "maintenance"
     ERROR = "error"
 
 
-class Server(BaseModel):
-    """
-    Server model for managing VPN/Proxy servers.
-
-    Fields:
-        - name: Server display name
-        - host: Server IP or domain
-        - port: Server port
-        - type: Server type (xray/v2ray/shadowsocks/trojan)
-        - status: Server status
-        - max_users: Maximum allowed users
-        - current_users: Current active users
-        - api_url: Server API endpoint
-        - api_key: Server API authentication key
-        - description: Server description
-    """
-
+class Server(Base):
     __tablename__ = "servers"
 
-    name = Column(String(100), nullable=False, index=True)
-    host = Column(String(255), nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), unique=True, nullable=False, index=True)
+    address = Column(String(255), unique=True, nullable=False)
     port = Column(Integer, nullable=False)
-    type = Column(SQLEnum(ServerType), nullable=False)
-    status = Column(
-        SQLEnum(ServerStatus),
-        default=ServerStatus.INACTIVE,
-        nullable=False
-    )
-    max_users = Column(Integer, default=100, nullable=False)
-    current_users = Column(Integer, default=0, nullable=False)
-    api_url = Column(String(255), nullable=True)
-    api_key = Column(String(255), nullable=True)
+    server_type = Column(SQLEnum(ServerType), nullable=False, default=ServerType.XRAY)
+    status = Column(SQLEnum(ServerStatus), nullable=False, default=ServerStatus.OFFLINE)
+    is_active = Column(Boolean, default=True, nullable=False)
+    memory_usage = Column(Float, default=0.0)
+    disk_usage = Column(Float, default=0.0)
+    uptime = Column(BigInteger, default=0)
+    api_port = Column(Integer, nullable=True)
+    api_path = Column(String(255), nullable=True)
+
+    username = Column(String(100), nullable=True)
+    password = Column(String(255), nullable=True)
+    ssh_port = Column(Integer, default=22)
+    cpu_usage = Column(Float, default=0.0)
+    max_users = Column(BigInteger, default=0)  # 0 = unlimited
+    max_traffic = Column(BigInteger, default=0)  # 0 = unlimited (in GB)
+    total_users = Column(Integer, default=0)
+    active_users = Column(Integer, default=0)
+    total_traffic = Column(BigInteger, default=0)
     description = Column(Text, nullable=True)
-    configs = relationship("Config", back_populates="server")
+    tags = Column(String(500), nullable=True)  # comma-separated tags
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    configs = relationship("Config", back_populates="server", cascade="all, delete-orphan")
 
     def __repr__(self):
-        return f"<Server(id={self.id}, name='{self.name}', type='{self.type.value}', status='{self.status.value}')>"
+        return f"<Server(id={self.id}, name='{self.name}', status='{self.status}')>"
