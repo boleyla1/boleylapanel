@@ -188,7 +188,8 @@ sleep 5   # wait a few seconds to ensure Docker is ready
 # Docker build & run with host network
 ############################################
 echo "🐋 Building Docker containers..."
-docker build -t boleyla-backend .
+docker build --network host -t boleyla-backend .
+
 
 
 
