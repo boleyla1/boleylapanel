@@ -8,14 +8,48 @@ echo "🚀 BoleylaPanel Backend Installation"
 echo "======================================"
 echo ""
 
-# Update and install prerequisites
+############################################
+# Network Checks
+############################################
+echo "🌐 Checking network connectivity..."
+
+# Check DNS
+if ! command -v host &>/dev/null; then
+    echo "📦 Installing DNS utility..."
+    sudo apt update
+    sudo apt install -y dnsutils
+fi
+
+if ! host google.com &>/dev/null; then
+    echo "❌ DNS resolution failed!"
+    echo "   The server cannot resolve domain names."
+    echo "👉 Fix DNS manually, for example:"
+    echo "   sudo bash -c 'echo nameserver 1.1.1.1 > /etc/resolv.conf'"
+    exit 1
+fi
+
+# Check internet
+if ! ping -c 1 1.1.1.1 &>/dev/null; then
+    echo "❌ No internet connection!"
+    echo "   Cannot reach the internet."
+    exit 1
+fi
+
+echo "✅ Network OK"
+echo ""
+
+############################################
+# Install prerequisites
+############################################
 echo "📦 Installing prerequisites..."
 sudo apt update
 sudo apt install -y git curl wget unzip openssl
 echo "✅ Prerequisites installed"
 echo ""
 
-# Install Docker if not installed
+############################################
+# Install Docker if needed
+############################################
 if ! command -v docker &> /dev/null; then
     echo "🐳 Docker not found. Installing Docker..."
     curl -fsSL https://get.docker.com -o get-docker.sh
@@ -25,7 +59,9 @@ if ! command -v docker &> /dev/null; then
     echo "✅ Docker installed"
 fi
 
-# Install Docker Compose if not installed
+############################################
+# Install Docker Compose if needed
+############################################
 if ! command -v docker-compose &> /dev/null; then
     echo "🐋 Docker Compose not found. Installing..."
     DOCKER_COMPOSE_VER=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep tag_name | cut -d '"' -f 4)
@@ -34,7 +70,9 @@ if ! command -v docker-compose &> /dev/null; then
     echo "✅ Docker Compose installed"
 fi
 
-# Clone repository if not exists
+############################################
+# Clone repository
+############################################
 if [ ! -d "$INSTALL_DIR" ]; then
     echo "📥 Cloning repository..."
     git clone $REPO_URL $INSTALL_DIR
@@ -42,18 +80,26 @@ if [ ! -d "$INSTALL_DIR" ]; then
     echo "✅ Repository cloned"
 else
     cd $INSTALL_DIR/backend
-    echo "✅ Repository already exists, skipping clone"
+    echo "📁 Repository already exists, updating..."
+    git pull
 fi
+
 echo ""
 
-# Create necessary directories
+############################################
+# Create directories
+############################################
 echo "📁 Creating directories..."
 mkdir -p logs xray/configs
-echo "✅ Directories created"
+echo "✅ Directories ready"
 echo ""
 
+############################################
 # Interactive Configuration
+############################################
+
 echo "📝 Configuration Setup"
+
 read -p "Database Name [boleyla_panel]: " DB_NAME
 DB_NAME=${DB_NAME:-boleyla_panel}
 
@@ -76,12 +122,11 @@ while true; do
     fi
 done
 
-# JWT secret
 JWT_SECRET=$(openssl rand -base64 32)
 
-# Admin user
 read -p "Admin Username [admin]: " ADMIN_USERNAME
 ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+
 read -p "Admin Email [admin@boleyla.local]: " ADMIN_EMAIL
 ADMIN_EMAIL=${ADMIN_EMAIL:-admin@boleyla.local}
 
@@ -101,7 +146,9 @@ while true; do
     fi
 done
 
-# Create .env
+############################################
+# Write .env file
+############################################
 cat > .env << EOF
 DB_HOST=mysql
 DB_PORT=3306
@@ -127,17 +174,21 @@ EOF
 echo "✅ .env file created"
 echo ""
 
-# Build and start containers
+############################################
+# Docker build and run
+############################################
 echo "🐋 Building Docker containers..."
 docker-compose build
 
 echo "🚀 Starting services..."
 docker-compose up -d
 
+############################################
 # Wait for MySQL
+############################################
 echo "⏳ Waiting for MySQL to be ready..."
 for i in {1..30}; do
-    if docker-compose exec -T mysql mysqladmin ping -h"localhost" --silent 2>/dev/null; then
+    if docker-compose exec -T mysql mysqladmin ping -h"localhost" --silent &>/dev/null; then
         echo "✅ MySQL is ready"
         break
     fi
@@ -146,7 +197,9 @@ for i in {1..30}; do
 done
 echo ""
 
-# Run migrations and init admin
+############################################
+# Run migrations
+############################################
 docker-compose exec -T backend alembic upgrade head
 docker-compose exec -T backend python scripts/init_db.py
 
