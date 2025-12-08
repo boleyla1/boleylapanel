@@ -1,39 +1,34 @@
-# =========================================
-# Stage 1: Build Dependencies
-# =========================================
-FROM python:3.12-slim AS build
+ARG PYTHON_VERSION=3.12
+
+FROM python:$PYTHON_VERSION-slim AS build
 
 ENV PYTHONUNBUFFERED=1
-WORKDIR /app
-
-# Install curl (needed for DNS/mirror tests)
-#RUN apt-get update \
-#    && apt-get install -y --no-install-recommends curl \
-#    && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt .
-
-# Install Pydantic <2 to fix Config/model_config error
-RUN pip install --no-cache-dir --upgrade pip setuptools \
-    && pip install --no-cache-dir "pydantic<2" -r requirements.txt --index-url https://pypi.org/simple --trusted-host pypi.org
-
-# =========================================
-# Stage 2: Runtime Image
-# =========================================
-FROM python:3.12-slim
-
-ENV PYTHONUNBUFFERED=1
-ENV PYTHON_LIB_PATH=/usr/local/lib/python3.12/site-packages
 
 WORKDIR /app
+
+# نصب پیش‌نیازها + DNS درست برای pip install
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential curl unzip gcc python3-dev libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# کپی requirements و نصب پکیج‌ها با محدودیت pydantic<2
+COPY ./requirements.txt /app/
+RUN python3 -m pip install --upgrade pip setuptools \
+    && pip install --no-cache-dir "pydantic<2" -r /app/requirements.txt
+
+FROM python:$PYTHON_VERSION-slim
+
+ENV PYTHON_LIB_PATH=/usr/local/lib/python${PYTHON_VERSION%.*}/site-packages
+WORKDIR /app
+
 RUN rm -rf $PYTHON_LIB_PATH/*
 
+# انتقال پکیج‌ها و باینری‌ها از stage build
 COPY --from=build $PYTHON_LIB_PATH $PYTHON_LIB_PATH
 COPY --from=build /usr/local/bin /usr/local/bin
 
+# کپی کل پروژه
 COPY . /app
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
-
-CMD ["sh", "-c", "alembic upgrade head && python scripts/init_db.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]
+# CMD برای اجرای migrations و start اپلیکیشن
+CMD ["bash", "-c", "alembic upgrade head; python main.py"]
