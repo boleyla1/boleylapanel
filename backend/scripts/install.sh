@@ -5,25 +5,35 @@ REPO_URL="https://github.com/boleyla1/boleylapanel.git"
 INSTALL_DIR="boleylapanel"
 
 echo "🚀 BoleylaPanel Backend Installation"
+echo "======================================"
 echo ""
 
 ############################################
 # Network Checks
 ############################################
 echo "🌐 Checking network connectivity..."
+
+# Check DNS
 if ! command -v host &>/dev/null; then
     echo "📦 Installing DNS utility..."
     sudo apt update
     sudo apt install -y dnsutils
 fi
+
 if ! host google.com &>/dev/null; then
-    echo "❌ DNS resolution failed! Fix DNS manually."
+    echo "❌ DNS resolution failed!"
+    echo "   The server cannot resolve domain names."
+    echo "👉 Fix DNS manually, for example:"
+    echo "   sudo bash -c 'echo nameserver 1.1.1.1 > /etc/resolv.conf'"
     exit 1
 fi
+
+# Check internet
 if ! ping -c 1 1.1.1.1 &>/dev/null; then
     echo "❌ No internet connection!"
     exit 1
 fi
+
 echo "✅ Network OK"
 echo ""
 
@@ -65,41 +75,73 @@ fi
 if [ ! -d "$INSTALL_DIR" ]; then
     echo "📥 Cloning repository..."
     git clone $REPO_URL $INSTALL_DIR
+    cd $INSTALL_DIR/backend
+    echo "✅ Repository cloned"
+else
+    cd $INSTALL_DIR/backend
+    echo "📁 Repository already exists, updating..."
+    git pull
 fi
-cd $INSTALL_DIR/backend
+
+echo ""
 
 ############################################
 # Create directories
 ############################################
+echo "📁 Creating directories..."
 mkdir -p logs xray/configs
+echo "✅ Directories ready"
+echo ""
 
 ############################################
 # Interactive Configuration
 ############################################
+echo "📝 Configuration Setup"
+
 read -p "Database Name [boleyla_panel]: " DB_NAME
 DB_NAME=${DB_NAME:-boleyla_panel}
+
 read -p "Database User [boleyla]: " DB_USER
 DB_USER=${DB_USER:-boleyla}
+
 while true; do
     read -sp "Database Password: " DB_PASSWORD
     echo ""
-    read -sp "Confirm Password: " DB_PASSWORD_CONFIRM
-    echo ""
-    [ "$DB_PASSWORD" = "$DB_PASSWORD_CONFIRM" ] && [ -n "$DB_PASSWORD" ] && break
-    echo "❌ Passwords do not match or empty!"
+    if [ -z "$DB_PASSWORD" ]; then
+        echo "❌ Password cannot be empty!"
+    else
+        read -sp "Confirm Password: " DB_PASSWORD_CONFIRM
+        echo ""
+        if [ "$DB_PASSWORD" = "$DB_PASSWORD_CONFIRM" ]; then
+            break
+        else
+            echo "❌ Passwords do not match!"
+        fi
+    fi
 done
+
 JWT_SECRET=$(openssl rand -base64 32)
+
 read -p "Admin Username [admin]: " ADMIN_USERNAME
 ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+
 read -p "Admin Email [admin@boleyla.local]: " ADMIN_EMAIL
 ADMIN_EMAIL=${ADMIN_EMAIL:-admin@boleyla.local}
+
 while true; do
     read -sp "Admin Password: " ADMIN_PASSWORD
     echo ""
-    read -sp "Confirm Password: " ADMIN_PASSWORD_CONFIRM
-    echo ""
-    [ "$ADMIN_PASSWORD" = "$ADMIN_PASSWORD_CONFIRM" ] && [ ${#ADMIN_PASSWORD} -ge 6 ] && break
-    echo "❌ Passwords do not match or too short!"
+    if [ ${#ADMIN_PASSWORD} -lt 6 ]; then
+        echo "❌ Password must be at least 6 characters!"
+    else
+        read -sp "Confirm Password: " ADMIN_PASSWORD_CONFIRM
+        echo ""
+        if [ "$ADMIN_PASSWORD" = "$ADMIN_PASSWORD_CONFIRM" ]; then
+            break
+        else
+            echo "❌ Passwords do not match!"
+        fi
+    fi
 done
 
 ############################################
@@ -111,32 +153,59 @@ DB_PORT=3306
 DB_USER=${DB_USER}
 DB_PASSWORD=${DB_PASSWORD}
 DB_NAME=${DB_NAME}
+
 SECRET_KEY=${JWT_SECRET}
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
+
 API_V1_STR=/api/v1
 PROJECT_NAME=BoleylaPanel
+
 XRAY_API_HOST=0.0.0.0
 XRAY_API_PORT=10085
+
 ADMIN_USERNAME=${ADMIN_USERNAME}
 ADMIN_EMAIL=${ADMIN_EMAIL}
 ADMIN_PASSWORD=${ADMIN_PASSWORD}
 EOF
 
+echo "✅ .env file created"
+echo ""
+
 ############################################
-# Docker build and run
-############################################پ
-sleep 5
-docker-compose build
+# Configure Docker DNS
+############################################
+sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
+{
+  "dns": ["8.8.8.8", "8.8.4.4", "1.1.1.1"]
+}
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+sleep 5   # wait a few seconds to ensure Docker is ready
+
+############################################
+# Docker build & run with host network
+############################################
+echo "🐋 Building Docker containers..."
+docker-compose build --network host
+
+echo "🚀 Starting services..."
 docker-compose up -d
 
 ############################################
 # Wait for MySQL
 ############################################
+echo "⏳ Waiting for MySQL to be ready..."
 for i in {1..30}; do
-    if docker-compose exec -T mysql mysqladmin ping -h"localhost" --silent &>/dev/null; then break; fi
+    if docker-compose exec -T mysql mysqladmin ping -h"localhost" --silent &>/dev/null; then
+        echo "✅ MySQL is ready"
+        break
+    fi
+    echo -n "."
     sleep 2
 done
+echo ""
 
 ############################################
 # Run migrations
@@ -144,4 +213,17 @@ done
 docker-compose exec -T backend alembic upgrade head
 docker-compose exec -T backend python scripts/init_db.py
 
+echo ""
+echo "======================================"
 echo "✅ Installation completed successfully!"
+echo "======================================"
+echo ""
+echo "📌 Access Information:"
+echo "   API URL: http://localhost:8000"
+echo "   API Docs: http://localhost:8000/docs"
+echo ""
+echo "🔐 Admin Credentials:"
+echo "   Username: ${ADMIN_USERNAME}"
+echo "   Email: ${ADMIN_EMAIL}"
+echo "   Password: [hidden]"
+echo ""
