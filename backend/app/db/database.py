@@ -3,18 +3,20 @@ Database engine and session configuration
 Uses SQLAlchemy 2.0 with sync API
 """
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator
 
-from app.config.settings import (settings)
+from app.config.settings import settings
 
-# Create SQLAlchemy engine
+# Create SQLAlchemy engine with PyMySQL
 engine = create_engine(
     settings.database_url,
     echo=settings.debug,  # Log SQL queries in debug mode
     pool_pre_ping=True,  # Verify connections before using
     pool_recycle=3600,  # Recycle connections after 1 hour
+    pool_size=10,  # Maximum number of connections
+    max_overflow=20,  # Maximum overflow connections
 )
 
 # Create SessionLocal class
@@ -24,15 +26,6 @@ SessionLocal = sessionmaker(
     bind=engine,
 )
 
-# @event.listens_for(engine, "connect")
-# def set_timezone(dbapi_conn, connection_record):
-#     """تنظیم UTC برای هر connection جدید"""
-#     cursor = dbapi_conn.cursor()
-#     cursor.execute("SET time_zone='+00:00'")
-#     cursor.close()
-
-# Create SessionLocal class
-# SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db() -> Generator[Session, None, None]:
     """

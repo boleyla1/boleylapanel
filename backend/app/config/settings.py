@@ -73,10 +73,19 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
+        """
+        Generate database URL for PyMySQL
+        Format: mysql+pymysql://user:password@host:port/database
+        """
         return (
             f"mysql+pymysql://{self.db_user}:{self.db_password}"
-            f"@{self.db_host}:{self.db_port}/{self.db_name}?charset=utf8mb4"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+            f"?charset=utf8mb4"
         )
+
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
 
 
 settings = Settings()
