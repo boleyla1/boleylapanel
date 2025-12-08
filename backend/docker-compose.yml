@@ -1,8 +1,11 @@
-
 services:
   backend:
     build: .
     container_name: boleyla_backend
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
     ports:
       - "8000:8000"
     volumes:
@@ -32,10 +35,16 @@ services:
       mysql:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - app-network
 
   mysql:
     image: mysql:8.0
     container_name: boleyla_mysql
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
       MYSQL_DATABASE: ${DB_NAME}
@@ -51,6 +60,12 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    networks:
+      - app-network
 
 volumes:
   mysql_data:
+
+networks:
+  app-network:
+    driver: bridge
