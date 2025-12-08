@@ -2,9 +2,31 @@
 
 set -e
 
+REPO_URL="https://github.com/boleyla1/boleylapanel.git"
+INSTALL_DIR="boleylapanel"
+
 echo "🚀 BoleylaPanel Backend Installation"
 echo "======================================"
 echo ""
+
+# Check if running from curl
+if [ ! -f "docker-compose.yml" ]; then
+    echo "📥 Cloning repository..."
+
+    # Check if git is installed
+    if ! command -v git &> /dev/null; then
+        echo "❌ Git is not installed!"
+        echo "Please install git first"
+        exit 1
+    fi
+
+    # Clone repository
+    git clone $REPO_URL $INSTALL_DIR
+    cd $INSTALL_DIR/backend
+
+    echo "✅ Repository cloned"
+    echo ""
+fi
 
 # Check if Docker is installed
 if ! command -v docker &> /dev/null; then
@@ -128,13 +150,6 @@ EOF
 echo "✅ .env file created"
 echo ""
 
-# Update docker-compose.yml with MySQL credentials
-echo "🐋 Updating docker-compose.yml..."
-sed -i "s/MYSQL_DATABASE=.*/MYSQL_DATABASE=${DB_NAME}/" docker-compose.yml || true
-sed -i "s/MYSQL_USER=.*/MYSQL_USER=${DB_USER}/" docker-compose.yml || true
-sed -i "s/MYSQL_PASSWORD=.*/MYSQL_PASSWORD=${DB_PASSWORD}/" docker-compose.yml || true
-sed -i "s/MYSQL_ROOT_PASSWORD=.*/MYSQL_ROOT_PASSWORD=${DB_PASSWORD}/" docker-compose.yml || true
-
 # Build and start containers
 echo "🐋 Building Docker containers..."
 docker-compose build
@@ -145,7 +160,7 @@ docker-compose up -d
 # Wait for MySQL
 echo "⏳ Waiting for MySQL to be ready..."
 for i in {1..30}; do
-    if docker-compose exec -T mysql mysqladmin ping -h"localhost" --silent; then
+    if docker-compose exec -T mysql mysqladmin ping -h"localhost" --silent 2>/dev/null; then
         echo "✅ MySQL is ready"
         break
     fi
