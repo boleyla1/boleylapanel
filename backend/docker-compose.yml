@@ -14,12 +14,6 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-    command:
-      - --mysqlx=OFF
-      - --character_set_server=utf8mb4
-      - --collation_server=utf8mb4_unicode_ci
-      - --log-bin=mysql-bin
-      - --binlog_expire_logs_seconds=1209600
     volumes:
       - /var/lib/boleylapanel/mysql:/var/lib/mysql
     healthcheck:

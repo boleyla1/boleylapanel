@@ -1,37 +1,20 @@
 ARG PYTHON_VERSION=3.12
 
-FROM python:$PYTHON_VERSION-slim AS build
+FROM python:$PYTHON_VERSION-slim
 
 ENV PYTHONUNBUFFERED=1
 WORKDIR /code
+ENV PYTHON_LIB_PATH=/usr/local/lib/python${PYTHON_VERSION%.*}/site-packages
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        build-essential \
-        gcc \
-        python3-dev \
-        default-libmysqlclient-dev \
-        pkg-config \
-    && rm -rf /var/lib/apt/lists/*
-
+# نصب وابستگی‌های Python از requirements.txt
 COPY ./requirements.txt /code/
 RUN python3 -m pip install --upgrade pip setuptools \
-    && pip install --no-cache-dir --upgrade -r /code/requirements.txt
+    && pip install --no-cache-dir -r /code/requirements.txt
 
-FROM python:$PYTHON_VERSION-slim
-
-ENV PYTHON_LIB_PATH=/usr/local/lib/python3.12/site-packages
-WORKDIR /code
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        default-libmysqlclient-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=build $PYTHON_LIB_PATH $PYTHON_LIB_PATH
-COPY --from=build /usr/local/bin /usr/local/bin
-
+# کپی کردن کد پروژه
 COPY . /code
 
 EXPOSE 8000
+
+# اجرای migration و استارت اپ
 CMD ["bash", "-c", "alembic upgrade head; uvicorn app.main:app --host 0.0.0.0 --port 8000"]
