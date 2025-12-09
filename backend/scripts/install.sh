@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
-APP_DIR="/opt/boleylapanel"
+APP_NAME="boleylapanel"
+APP_DIR="/opt/$APP_NAME"
+DATA_DIR="/var/lib/$APP_NAME"
 COMPOSE_FILE="$APP_DIR/docker-compose.yml"
 ENV_FILE="$APP_DIR/.env"
 
@@ -10,8 +12,11 @@ MYSQL_ROOT_PASSWORD=$(tr -dc 'A-Za-z0-9!@#$%^&*' </dev/urandom | head -c 20)
 MYSQL_PASSWORD=$(tr -dc 'A-Za-z0-9!@#$%^&*' </dev/urandom | head -c 20)
 SECRET_KEY=$(openssl rand -hex 32)
 
-# Create .env file
+# Prepare directories
 mkdir -p "$APP_DIR/backend"
+mkdir -p "$DATA_DIR"
+
+# Create .env file
 cat > "$ENV_FILE" << EOF
 SECRET_KEY=$SECRET_KEY
 MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
@@ -20,7 +25,6 @@ MYSQL_USER=boleyla
 MYSQL_PASSWORD=$MYSQL_PASSWORD
 DATABASE_URL=mysql+pymysql://boleyla:$MYSQL_PASSWORD@mysql:3306/boleylapanel
 EOF
-
 echo ".env file created at $ENV_FILE"
 
 # Create docker-compose.yml
@@ -56,7 +60,6 @@ services:
       timeout: 5s
       retries: 55
 EOF
-
 echo "docker-compose.yml created at $COMPOSE_FILE"
 
 # Build and start docker
