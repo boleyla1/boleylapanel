@@ -1,144 +1,135 @@
 #!/usr/bin/env bash
 set -e
 
-# رنگ‌ها برای خروجی
+# رنگ‌ها
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# متغیرهای پروژه
-REPO_URL="https://github.com/boleyla1/boleylapanel.git"
-INSTALL_DIR="/opt/boleylapanel"
-SERVICE_NAME="boleylapanel"
+echo -e "${GREEN}=== نصب خودکار BoleylaPanle ===${NC}"
 
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}   BoleylaPANEL Installer v1.0${NC}"
-echo -e "${BLUE}========================================${NC}"
-
-# بررسی دسترسی Root
-if [ "$(id -u)" != "0" ]; then
-    echo -e "${RED}❌ This script must be run as root!${NC}"
-    exit 1
+# بررسی root
+if [ "$EUID" -ne 0 ]; then
+   echo -e "${RED}لطفا با sudo اجرا کنید${NC}"
+   exit 1
 fi
 
-# تشخیص سیستم‌عامل
-if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    OS=$ID
-else
-    echo -e "${RED}❌ Cannot detect OS${NC}"
-    exit 1
+# حذف نصب قبلی
+if [ -d "/opt/boleylapanel" ]; then
+    echo -e "${YELLOW}حذف نصب قبلی...${NC}"
+    cd /opt/boleylapanel/backend 2>/dev/null && docker compose down 2>/dev/null || true
+    rm -rf /opt/boleylapanel
 fi
 
-echo -e "${GREEN}✓ Detected OS: $OS${NC}"
+# کلون پروژه
+echo -e "${GREEN}دانلود پروژه از GitHub...${NC}"
+cd /opt
+git clone https://github.com/boleyla1/boleylapanel.git
+cd /opt/boleylapanel/backend
 
-# نصب Docker
+# نصب Docker (اگر نیست)
 if ! command -v docker &> /dev/null; then
-    echo -e "${YELLOW}⏳ Installing Docker...${NC}"
+    echo -e "${YELLOW}نصب Docker...${NC}"
     curl -fsSL https://get.docker.com | sh
-    systemctl enable docker
     systemctl start docker
-    echo -e "${GREEN}✓ Docker installed${NC}"
-else
-    echo -e "${GREEN}✓ Docker already installed${NC}"
+    systemctl enable docker
 fi
 
-# بررسی Docker Compose
-if ! docker compose version &> /dev/null; then
-    echo -e "${RED}❌ Docker Compose not found!${NC}"
-    exit 1
-fi
+# تنظیم DNS (رفع مشکل Trixie)
+echo -e "${GREEN}تنظیم DNS...${NC}"
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json << 'DOCKER_EOF'
+{
+  "dns": ["8.8.8.8", "1.1.1.1"]
+}
+DOCKER_EOF
+systemctl restart docker 2>/dev/null || true
 
-# نصب Git
-if ! command -v git &> /dev/null; then
-    echo -e "${YELLOW}⏳ Installing Git...${NC}"
-    if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
-        apt-get update && apt-get install -y git
-    elif [ "$OS" = "centos" ] || [ "$OS" = "rhel" ]; then
-        yum install -y git
-    fi
-    echo -e "${GREEN}✓ Git installed${NC}"
-fi
+# اصلاح Dockerfile (استفاده از Mirror سریع)
+echo -e "${GREEN}اصلاح Dockerfile...${NC}"
+cat > Dockerfile << 'DOCKERFILE_EOF'
+FROM python:3.12-slim
 
-# پاکسازی نصب قبلی
-if [ -d "$INSTALL_DIR" ]; then
-    echo -e "${YELLOW}⚠ Previous installation found${NC}"
-    read -p "Remove and reinstall? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        cd "$INSTALL_DIR"
-        docker compose down -v 2>/dev/null || true
-        cd /
-        rm -rf "$INSTALL_DIR"
-        echo -e "${GREEN}✓ Previous installation removed${NC}"
-    else
-        echo -e "${YELLOW}Installation cancelled${NC}"
-        exit 0
-    fi
-fi
+WORKDIR /app
 
-# کلون کردن پروژه
-echo -e "${YELLOW}⏳ Cloning repository...${NC}"
-git clone "$REPO_URL" "$INSTALL_DIR"
-cd "$INSTALL_DIR"
-echo -e "${GREEN}✓ Repository cloned${NC}"
+# استفاده از Mirror ایران برای سرعت بالا
+RUN echo "deb https://mirror.arvancloud.ir/debian trixie main" > /etc/apt/sources.list && \
+    echo "deb https://mirror.arvancloud.ir/debian trixie-updates main" >> /etc/apt/sources.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        unzip \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
-# بررسی فایل‌های ضروری
-if [ ! -f "Dockerfile" ] || [ ! -f "docker-compose.yml" ]; then
-    echo -e "${RED}❌ Required files not found!${NC}"
-    exit 1
-fi
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# ایجاد فایل .env
+COPY . .
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+DOCKERFILE_EOF
+
+# بررسی .env
 if [ ! -f ".env" ]; then
+    echo -e "${YELLOW}ایجاد فایل .env...${NC}"
     if [ -f ".env.example" ]; then
         cp .env.example .env
-        echo -e "${GREEN}✓ .env created from .env.example${NC}"
-
-        # تولید رمز تصادفی
-        RANDOM_PASSWORD=$(openssl rand -base64 16 | tr -d "=+/" | cut -c1-16)
-        sed -i "s/MYSQL_PASSWORD=.*/MYSQL_PASSWORD=$RANDOM_PASSWORD/" .env
-        sed -i "s/securepassword/$RANDOM_PASSWORD/g" .env
-
-        echo -e "${YELLOW}⚠ Please edit .env file with your settings${NC}"
-        echo -e "${YELLOW}Generated MySQL password: $RANDOM_PASSWORD${NC}"
     else
-        echo -e "${RED}❌ .env.example not found!${NC}"
-        exit 1
+        cat > .env << 'ENV_EOF'
+DATABASE_URL=sqlite:///./boleylapanel.db
+SECRET_KEY=$(openssl rand -hex 32)
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+ENV_EOF
     fi
 fi
 
-# Build و اجرای کانتینرها
-echo -e "${YELLOW}⏳ Building and starting containers...${NC}"
-echo -e "${BLUE}This may take 5-10 minutes...${NC}"
+# ساخت و اجرای کانتینرها
+echo -e "${GREEN}ساخت Docker Images (ممکنه چند دقیقه طول بکشه)...${NC}"
+docker compose build --no-cache
 
-docker compose up -d --build
+echo -e "${GREEN}اجرای سرویس‌ها...${NC}"
+docker compose up -d
 
-# بررسی وضعیت
-echo -e "${YELLOW}⏳ Waiting for services to start...${NC}"
-sleep 30
+# ایجاد اسکریپت مدیریت
+echo -e "${GREEN}نصب اسکریپت مدیریت...${NC}"
+cat > /usr/local/bin/boleylapanel << 'SCRIPT_EOF'
+#!/bin/bash
+cd /opt/boleylapanel/backend
+case "$1" in
+    start) docker compose up -d ;;
+    stop) docker compose down ;;
+    restart) docker compose restart ;;
+    logs) docker compose logs -f ;;
+    status) docker compose ps ;;
+    update)
+        git pull
+        docker compose down
+        docker compose build --no-cache
+        docker compose up -d
+        ;;
+    *)
+        echo "استفاده: boleylapanel {start|stop|restart|logs|status|update}"
+        exit 1
+        ;;
+esac
+SCRIPT_EOF
 
-if docker compose ps | grep -q "Up"; then
-    echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN}✓ Installation completed successfully!${NC}"
-    echo -e "${GREEN}========================================${NC}"
-    echo -e "${BLUE}Services:${NC}"
-    docker compose ps
-    echo ""
-    echo -e "${BLUE}Access:${NC}"
-    echo -e "  • API: ${GREEN}http://localhost:8000${NC}"
-    echo -e "  • Health: ${GREEN}http://localhost:8000/health${NC}"
-    echo ""
-    echo -e "${BLUE}Management:${NC}"
-    echo -e "  • Logs: ${YELLOW}docker compose -f $INSTALL_DIR/docker-compose.yml logs -f${NC}"
-    echo -e "  • Stop: ${YELLOW}docker compose -f $INSTALL_DIR/docker-compose.yml stop${NC}"
-    echo -e "  • Start: ${YELLOW}docker compose -f $INSTALL_DIR/docker-compose.yml start${NC}"
-    echo -e "  • Restart: ${YELLOW}docker compose -f $INSTALL_DIR/docker-compose.yml restart${NC}"
-else
-    echo -e "${RED}❌ Service failed to start!${NC}"
-    echo -e "${YELLOW}Check logs:${NC}"
-    docker compose logs
-    exit 1
-fi
+chmod +x /usr/local/bin/boleylapanel
+
+# نمایش وضعیت
+echo -e "${GREEN}✅ نصب کامل شد!${NC}"
+echo ""
+docker compose ps
+echo ""
+echo -e "${GREEN}دستورات مدیریت:${NC}"
+echo "  boleylapanel start   - اجرای سرویس"
+echo "  boleylapanel stop    - توقف سرویس"
+echo "  boleylapanel restart - ریستارت"
+echo "  boleylapanel logs    - مشاهده لاگ‌ها"
+echo "  boleylapanel status  - وضعیت سرویس"
+echo "  boleylapanel update  - به‌روزرسانی از GitHub"
