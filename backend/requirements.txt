@@ -24,3 +24,4 @@ python-multipart==0.0.6
 
 # HTTP Client (برای health checks داخلی اگر نیاز بود)
 httpx==0.25.2
+pyyaml>=6.0
