@@ -1,47 +1,33 @@
-ARG PYTHON_VERSION=3.12
+# ===== Base image =====
+FROM python:3.12-slim
 
-FROM python:$PYTHON_VERSION-slim AS build
-
-ENV PYTHONUNBUFFERED=1
+# ===== Set working directory =====
 WORKDIR /code
 
-# Use Cloudflare mirror (fastest globally)
+# ===== Update sources and install dependencies =====
 RUN rm -f /etc/apt/sources.list.d/* \
-    && echo "deb http://deb.debian.org/debian trixie main contrib non-free" > /etc/apt/sources.list \
-    && echo "deb http://deb.debian.org/debian trixie-updates main contrib non-free" >> /etc/apt/sources.list \
-    && echo "deb http://security.debian.org/debian-security trixie-security main contrib non-free" >> /etc/apt/sources.list
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+ && echo "deb http://deb.debian.org/debian bookworm main contrib non-free" > /etc/apt/sources.list \
+ && apt-get update -qq \
+ && apt-get install -y --no-install-recommends \
         build-essential \
         gcc \
         python3-dev \
         default-libmysqlclient-dev \
-        pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+        curl \
+ && rm -rf /var/lib/apt/lists/*
 
+# ===== Copy requirements =====
 COPY ./requirements.txt /code/
+
+# ===== Install Python dependencies =====
 RUN python3 -m pip install --upgrade pip setuptools \
-    && pip install --no-cache-dir --upgrade -r /code/requirements.txt
+ && pip install --no-cache-dir -r /code/requirements.txt
 
-FROM python:$PYTHON_VERSION-slim
-
-ENV PYTHON_LIB_PATH=/usr/local/lib/python3.12/site-packages
-WORKDIR /code
-
-RUN rm -f /etc/apt/sources.list.d/* \
-    && echo "deb http://deb.debian.org/debian trixie main contrib non-free" > /etc/apt/sources.list \
-    && echo "deb http://deb.debian.org/debian trixie-updates main contrib non-free" >> /etc/apt/sources.list
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        default-libmysqlclient-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=build $PYTHON_LIB_PATH $PYTHON_LIB_PATH
-COPY --from=build /usr/local/bin /usr/local/bin
-
+# ===== Copy application code =====
 COPY . /code
 
+# ===== Expose port =====
 EXPOSE 8000
-CMD ["bash", "-c", "alembic upgrade head; uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+
+# ===== Command =====
+CMD ["python3", "main.py"]
