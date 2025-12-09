@@ -2,9 +2,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# استفاده از Mirror ایران برای سرعت بالا
-RUN echo "deb https://mirror.arvancloud.ir/debian trixie main" > /etc/apt/sources.list && \
-    echo "deb https://mirror.arvancloud.ir/debian trixie-updates main" >> /etc/apt/sources.list && \
+# Use fast Debian mirror with Cloudflare CDN
+RUN sed -i 's|deb.debian.org|ftp.de.debian.org|g' /etc/apt/sources.list.d/debian.sources && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
         curl \
