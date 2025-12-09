@@ -1,41 +1,14 @@
-version: '3.8'
-
 services:
-  mysql:
-    image: mysql:lts
-    container_name: boleylapanel-mysql
-    restart: always
-    ports:
-      - "3306:3306"
-    env_file: .env
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_ROOT_HOST: '%'
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-    command:
-      - --mysqlx=OFF
-      - --character_set_server=utf8mb4
-      - --collation_server=utf8mb4_unicode_ci
-      - --log-bin=mysql-bin
-      - --binlog_expire_logs_seconds=1209600
-    volumes:
-      - /var/lib/boleylapanel/mysql:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "${MYSQL_USER}", "--password=${MYSQL_PASSWORD}"]
-      start_period: 5s
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-      network: host  # استفاده از شبکه هاست برای حل مشکل DNS
+      network: backend_net
     container_name: boleylapanel-backend
     restart: always
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     ports:
       - "8000:8000"
     env_file: .env
@@ -45,3 +18,7 @@ services:
     volumes:
       - /var/lib/boleylapanel:/var/lib/boleylapanel
       - /var/lib/boleylapanel/logs:/var/lib/boleylapanel/logs
+
+networks:
+  backend_net:
+    driver: bridge
