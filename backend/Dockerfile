@@ -14,7 +14,10 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /build
 
 # نصب ابزارهای build با mirror سریع و retry
-RUN sed -i "s|http://deb.debian.org/debian|${APT_MIRROR}|g" /etc/apt/sources.list \
+# نصب ابزارهای build با mirror سریع و retry
+RUN echo "deb http://ftp.debian.org/debian trixie main contrib non-free" > /etc/apt/sources.list \
+    && echo "deb http://ftp.debian.org/debian trixie-updates main contrib non-free" >> /etc/apt/sources.list \
+    && echo "deb http://deb.debian.org/debian-security trixie-security main contrib non-free" >> /etc/apt/sources.list \
     && apt-get update --fix-missing \
     && apt-get install -y --no-install-recommends \
         gcc \
@@ -24,6 +27,7 @@ RUN sed -i "s|http://deb.debian.org/debian|${APT_MIRROR}|g" /etc/apt/sources.lis
         git \
         unzip \
     && rm -rf /var/lib/apt/lists/*
+
 
 # بروزرسانی pip و نصب requirements
 COPY requirements.txt .
