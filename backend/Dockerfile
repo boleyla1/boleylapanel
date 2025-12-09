@@ -2,12 +2,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Use fast Debian mirror with Cloudflare CDN
+# Use fast Debian mirror
 RUN sed -i 's|deb.debian.org|ftp.de.debian.org|g' /etc/apt/sources.list.d/debian.sources && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
         curl \
-        unzip \
+        default-libmysqlclient-dev \
+        build-essential \
+        pkg-config \
         ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
