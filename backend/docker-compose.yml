@@ -1,72 +1,50 @@
-version: "3.9"
+version: '3.8'
 
 services:
+  mysql:
+    image: mysql:8.4
+    container_name: boleylapanel-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-boleylapanel}
+      MYSQL_USER: ${MYSQL_USER:-boleyla}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-securepassword}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - boleylapanel-network
+
   backend:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: boleyla_backend
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./xray:/app/xray
-      - ./config:/app/config
-      - ./logs:/app/logs
-    environment:
-      - DB_HOST=mysql
-      - DB_PORT=3306
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DB_NAME=${DB_NAME}
-      - SECRET_KEY=${SECRET_KEY}
-      - ALGORITHM=${ALGORITHM:-HS256}
-      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
-      - API_V1_STR=${API_V1_STR:-/api/v1}
-      - PROJECT_NAME=${PROJECT_NAME:-BoleylaPanel}
-      - ADMIN_USERNAME=${ADMIN_USERNAME}
-      - ADMIN_EMAIL=${ADMIN_EMAIL}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+    container_name: boleylapanel-backend
+    env_file:
+      - .env
     depends_on:
       mysql:
         condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - app-network
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
-      - 1.1.1.1
-
-  mysql:
-    image: mysql:8.0
-    container_name: boleyla_mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-      MYSQL_DATABASE: ${DB_NAME}
-      MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "3306:3306"
+      - "8000:8000"
     volumes:
-      - mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      - ./app:/app/app
+      - ./config:/app/config
+      - ./xray:/app/xray
     restart: unless-stopped
     networks:
-      - app-network
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
-      - 1.1.1.1
+      - boleylapanel-network
 
 volumes:
   mysql_data:
-    driver: local
 
 networks:
-  app-network:
+  boleylapanel-network:
     driver: bridge
