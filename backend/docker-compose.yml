@@ -2,49 +2,45 @@ version: '3.8'
 
 services:
   mysql:
-    image: mysql:8.4
+    image: mysql:lts
     container_name: boleylapanel-mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-boleylapanel}
-      MYSQL_USER: ${MYSQL_USER:-boleyla}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-securepassword}
-    volumes:
-      - mysql_data:/var/lib/mysql
+    restart: always
     ports:
       - "3306:3306"
+    env_file: .env
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_ROOT_HOST: '%'
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    command:
+      - --mysqlx=OFF
+      - --character_set_server=utf8mb4
+      - --collation_server=utf8mb4_unicode_ci
+      - --log-bin=mysql-bin
+      - --binlog_expire_logs_seconds=1209600
+    volumes:
+      - /var/lib/boleylapanel/mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "${MYSQL_USER}", "--password=${MYSQL_PASSWORD}"]
+      start_period: 5s
+      interval: 5s
       timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - boleylapanel-network
+      retries: 20
 
   backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
     container_name: boleylapanel-backend
-    env_file:
-      - .env
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file: .env
     depends_on:
       mysql:
         condition: service_healthy
-    ports:
-      - "8000:8000"
     volumes:
-      - ./app:/app/app
-      - ./config:/app/config
-      - ./xray:/app/xray
-    restart: unless-stopped
-    networks:
-      - boleylapanel-network
-
-volumes:
-  mysql_data:
-
-networks:
-  boleylapanel-network:
-    driver: bridge
+      - /var/lib/boleylapanel:/var/lib/boleylapanel
+      - /var/lib/boleylapanel/logs:/var/lib/boleylapanel/logs
