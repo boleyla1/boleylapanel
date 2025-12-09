@@ -5,10 +5,11 @@ FROM python:$PYTHON_VERSION-slim AS build
 ENV PYTHONUNBUFFERED=1
 WORKDIR /code
 
-# Set fast mirror for Debian Trixie
-RUN echo "deb http://ftp.de.debian.org/debian trixie main" > /etc/apt/sources.list \
-    && echo "deb http://ftp.de.debian.org/debian trixie-updates main" >> /etc/apt/sources.list \
-    && echo "deb http://security.debian.org/debian-security trixie-security main" >> /etc/apt/sources.list
+# Use Cloudflare mirror (fastest globally)
+RUN rm -f /etc/apt/sources.list.d/* \
+    && echo "deb http://deb.debian.org/debian trixie main contrib non-free" > /etc/apt/sources.list \
+    && echo "deb http://deb.debian.org/debian trixie-updates main contrib non-free" >> /etc/apt/sources.list \
+    && echo "deb http://security.debian.org/debian-security trixie-security main contrib non-free" >> /etc/apt/sources.list
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -28,9 +29,9 @@ FROM python:$PYTHON_VERSION-slim
 ENV PYTHON_LIB_PATH=/usr/local/lib/python3.12/site-packages
 WORKDIR /code
 
-# Set fast mirror for final stage too
-RUN echo "deb http://ftp.de.debian.org/debian trixie main" > /etc/apt/sources.list \
-    && echo "deb http://ftp.de.debian.org/debian trixie-updates main" >> /etc/apt/sources.list
+RUN rm -f /etc/apt/sources.list.d/* \
+    && echo "deb http://deb.debian.org/debian trixie main contrib non-free" > /etc/apt/sources.list \
+    && echo "deb http://deb.debian.org/debian trixie-updates main contrib non-free" >> /etc/apt/sources.list
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
