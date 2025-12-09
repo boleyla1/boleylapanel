@@ -100,6 +100,33 @@ detect_compose() {
     fi
 }
 
+configure_dns() {
+    colorized_echo blue "Configuring DNS for Docker..."
+
+    # Stop systemd-resolved
+    systemctl stop systemd-resolved 2>/dev/null || true
+    systemctl disable systemd-resolved 2>/dev/null || true
+
+    # Configure /etc/resolv.conf
+    cat > /etc/resolv.conf <<EOF
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+EOF
+
+    chattr +i /etc/resolv.conf 2>/dev/null || true
+
+    # Configure Docker daemon
+    mkdir -p /etc/docker
+    cat > /etc/docker/daemon.json <<EOF
+{
+  "dns": ["8.8.8.8", "8.8.4.4"]
+}
+EOF
+
+    systemctl restart docker 2>/dev/null || true
+    colorized_echo green "DNS configured successfully"
+}
+
 generate_password() {
     openssl rand -base64 20 | tr -d "=+/" | cut -c1-20
 }
@@ -112,7 +139,7 @@ install_dependencies() {
     detect_os
     detect_and_update_package_manager
 
-    for pkg in curl wget jq rsync git; do
+    for pkg in curl wget jq rsync git openssl; do
         if ! command -v $pkg &> /dev/null; then
             install_package $pkg
         fi
@@ -188,9 +215,6 @@ update_dockerfile() {
     cat > "$DOCKERFILE" <<'EOF'
 ARG PYTHON_VERSION=3.11
 
-# ===========================
-# Stage 1: Build Dependencies
-# ===========================
 FROM python:${PYTHON_VERSION}-slim AS build
 
 ENV PYTHONUNBUFFERED=1 \
@@ -200,7 +224,6 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /build
 
-# Install build tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
         libc-dev \
@@ -209,45 +232,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
 COPY requirements.txt .
-RUN python3 -m pip install --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r requirements.txt
+RUN python3 -m pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
-# ===========================
-# Stage 2: Runtime Image
-# ===========================
 FROM python:${PYTHON_VERSION}-slim
 
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Copy packages from build stage
 COPY --from=build /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=build /usr/local/bin /usr/local/bin
 
-# Copy application code
 COPY . /app
 
 EXPOSE 8000
 
-# Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=40s \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)" || exit 1
+    CMD curl -f http://localhost:8000/health || exit 1
 
-# Run migrations and start
 CMD ["sh", "-c", "alembic upgrade head && python scripts/init_db.py && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
 EOF
 
     colorized_echo green "Dockerfile updated"
 }
 
-setup_docker_compose() {
-    colorized_echo blue "Setting up docker-compose.yml..."
+create_docker_compose() {
+    colorized_echo blue "Creating docker-compose.yml..."
 
     cat > "$COMPOSE_FILE" <<'EOF'
-version: "3.9"
+version: '3.8'
 
 services:
   backend:
@@ -256,19 +271,27 @@ services:
       dockerfile: Dockerfile
     container_name: boleylapanel-backend
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     volumes:
-      - /var/lib/boleylapanel:/var/lib/boleylapanel
-      - /var/lib/boleylapanel/logs:/app/logs
-      - /var/lib/boleylapanel/xray:/app/xray
-      - /var/lib/boleylapanel/config:/app/config
+      - ./app:/app/app
+      - ${DATA_DIR:-/var/lib/boleylapanel}:/var/lib/boleylapanel
     depends_on:
       mysql:
         condition: service_healthy
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     networks:
       - boleylapanel-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   mysql:
     image: mysql:8.0
@@ -276,27 +299,33 @@ services:
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${DB_NAME}
-      MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-    command:
-      - --bind-address=0.0.0.0
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
-      - --default-authentication-plugin=mysql_native_password
-      - --innodb-buffer-pool-size=256M
-      - --innodb-log-file-size=64M
-      - --max_connections=200
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-boleylapanel}
+      MYSQL_USER: ${MYSQL_USER:-boleylapanel}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3306:3306"
     volumes:
-      - /var/lib/boleylapanel/mysql:/var/lib/mysql
+      - mysql_data:/var/lib/mysql
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --innodb-buffer-pool-size=256M
+      --max-connections=200
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    networks:
+      - boleylapanel-network
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
-    networks:
-      - boleylapanel-network
+
+volumes:
+  mysql_data:
 
 networks:
   boleylapanel-network:
@@ -306,190 +335,55 @@ EOF
     colorized_echo green "docker-compose.yml created"
 }
 
-interactive_setup() {
-    clear
-    colorized_echo blue "═══════════════════════════════════════════"
-    colorized_echo blue "    BoleylPanel Installation Wizard       "
-    colorized_echo blue "═══════════════════════════════════════════"
-    echo ""
-
-    # Admin username
-    read -p "$(echo -e ${YELLOW}Enter admin username [admin]: ${NC})" ADMIN_USER
-    ADMIN_USER=${ADMIN_USER:-admin}
-
-    # Admin email
-    read -p "$(echo -e ${YELLOW}Enter admin email [admin@example.com]: ${NC})" ADMIN_EMAIL
-    ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
-
-    # Admin password
-    while true; do
-        read -sp "$(echo -e ${YELLOW}Enter admin password (leave empty for auto-generate): ${NC})" ADMIN_PASSWORD
-        echo ""
-        if [ -z "$ADMIN_PASSWORD" ]; then
-            ADMIN_PASSWORD=$(generate_password)
-            colorized_echo green "✓ Generated password: $ADMIN_PASSWORD"
-            break
-        elif [ ${#ADMIN_PASSWORD} -ge 8 ]; then
-            break
-        else
-            colorized_echo red "Password must be at least 8 characters"
-        fi
-    done
-
-    # Database configuration
-    DB_USER="boleyla"
-    DB_NAME="boleylapanel"
-    DB_PASSWORD=$(generate_password)
-    MYSQL_ROOT_PASSWORD=$(generate_password)
-
-    # Security keys
-    SECRET_KEY=$(openssl rand -hex 32)
-
-    colorized_echo green "✓ Configuration completed"
-    echo ""
-}
-
 create_env_file() {
     colorized_echo blue "Creating .env file..."
 
-    cat > "$ENV_FILE" <<EOF
-# ==============================================
-# Application Settings
-# ==============================================
-APP_NAME=BoleylaPanel
-APP_VERSION=1.0.0
-APP_ENV=production
-DEBUG=false
-PROJECT_NAME=BoleylaPanel
+    read -p "Enter admin username [admin]: " ADMIN_USERNAME
+    ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
 
-# ==============================================
-# Server Settings
-# ==============================================
-HOST=0.0.0.0
-PORT=8000
-API_V1_STR=/api/v1
-
-# ==============================================
-# Database Settings - MySQL
-# ==============================================
-DB_HOST=mysql
-DB_PORT=3306
-DB_NAME=${DB_NAME}
-DB_USER=${DB_USER}
-DB_PASSWORD=${DB_PASSWORD}
-
-# MySQL Root Password
-MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
-MYSQL_DATABASE=${DB_NAME}
-MYSQL_USER=${DB_USER}
-MYSQL_PASSWORD=${DB_PASSWORD}
-
-# SQLAlchemy URL
-SQLALCHEMY_DATABASE_URL=mysql+pymysql://${DB_USER}:${DB_PASSWORD}@mysql:3306/${DB_NAME}
-
-# ==============================================
-# Security Settings
-# ==============================================
-SECRET_KEY=${SECRET_KEY}
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-
-# ==============================================
-# Admin Configuration
-# ==============================================
-ADMIN_USERNAME=${ADMIN_USER}
-ADMIN_EMAIL=${ADMIN_EMAIL}
-ADMIN_PASSWORD=${ADMIN_PASSWORD}
-
-# ==============================================
-# CORS Settings
-# ==============================================
-CORS_ORIGINS=["http://localhost:3000","http://localhost:8000"]
-
-# ==============================================
-# Xray Settings
-# ==============================================
-XRAY_CONFIG_TEMPLATE_PATH=/app/config/xray_template.json
-XRAY_CONFIG_OUTPUT_PATH=/var/lib/boleylapanel/xray/output_configs
-XRAY_SERVICE_NAME=XrayService
-ENABLE_XRAY_SERVICE=true
-XRAY_BASE_PORT=10000
-
-# ==============================================
-# File Upload Settings
-# ==============================================
-MAX_UPLOAD_SIZE=10485760
-ALLOWED_EXTENSIONS=json,conf,txt
-
-# ==============================================
-# Logging
-# ==============================================
-LOG_LEVEL=INFO
-LOG_FILE=/var/lib/boleylapanel/logs/app.log
-
-# ==============================================
-# Backup Settings
-# ==============================================
-BACKUP_ENABLED=true
-BACKUP_RETENTION_DAYS=7
-BACKUP_PATH=/var/lib/boleylapanel/backups
-
-# ==============================================
-# Data Directory
-# ==============================================
-DATA_DIR=/var/lib/boleylapanel
-EOF
-
-    chmod 600 "$ENV_FILE"
-    colorized_echo green ".env file created"
-}
-
-build_and_start() {
-    colorized_echo blue "Building Docker images..."
-
-    cd "$APP_DIR"
-    detect_compose
-
-    colorized_echo yellow "════════════════════════════════════════════"
-    colorized_echo yellow " Building... This may take several minutes"
-    colorized_echo yellow "════════════════════════════════════════════"
-
-    $COMPOSE build --no-cache 2>&1 | tee /tmp/boleylapanel_build.log
-
-    if [ ${PIPESTATUS[0]} -eq 0 ]; then
-        colorized_echo green "✓ Build completed successfully"
-    else
-        colorized_echo red "✗ Build failed. Check /tmp/boleylapanel_build.log"
-        exit 1
+    read -sp "Enter admin password: " ADMIN_PASSWORD
+    echo
+    if [ -z "$ADMIN_PASSWORD" ]; then
+        ADMIN_PASSWORD=$(generate_password)
+        colorized_echo yellow "Generated admin password: $ADMIN_PASSWORD"
     fi
 
-    colorized_echo yellow "Starting containers..."
-    $COMPOSE up -d
+    MYSQL_ROOT_PASSWORD=$(generate_password)
+    MYSQL_PASSWORD=$(generate_password)
+    JWT_SECRET=$(generate_password)
 
-    colorized_echo green "✓ Services started"
-}
+    cat > "$ENV_FILE" <<EOF
+# Application
+APP_NAME=BoleylPanel
+DATA_DIR=/var/lib/boleylapanel
 
-check_services() {
-    colorized_echo yellow "Waiting for services to initialize..."
-    sleep 25
+# Admin User
+ADMIN_USERNAME=$ADMIN_USERNAME
+ADMIN_PASSWORD=$ADMIN_PASSWORD
 
-    cd "$APP_DIR"
+# Database
+MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
+MYSQL_DATABASE=boleylapanel
+MYSQL_USER=boleylapanel
+MYSQL_PASSWORD=$MYSQL_PASSWORD
+DATABASE_URL=mysql+pymysql://boleylapanel:$MYSQL_PASSWORD@mysql:3306/boleylapanel
 
-    colorized_echo blue "═══════════════════════════════════════════"
-    colorized_echo blue " Service Status:"
-    colorized_echo blue "═══════════════════════════════════════════"
-    $COMPOSE ps
+# JWT
+JWT_SECRET_KEY=$JWT_SECRET
+JWT_ALGORITHM=HS256
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=43200
 
-    echo ""
-    colorized_echo blue "Recent Logs:"
-    colorized_echo blue "═══════════════════════════════════════════"
-    $COMPOSE logs --tail=40 backend
+# Xray
+XRAY_EXECUTABLE_PATH=/var/lib/boleylapanel/xray/xray
+EOF
+
+    colorized_echo green ".env file created"
 }
 
 install_management_script() {
     colorized_echo blue "Installing management script..."
 
-    cat > /usr/local/bin/boleylapanel <<'SCRIPT_EOF'
+    cat > /usr/local/bin/boleylapanel <<'SCRIPT'
 #!/bin/bash
 APP_DIR="/opt/boleylapanel"
 cd "$APP_DIR"
@@ -511,119 +405,61 @@ case "$1" in
         docker compose ps
         ;;
     update)
-        docker compose pull
-        docker compose up -d --build
+        git pull
+        docker compose down
+        docker compose build --no-cache
+        docker compose up -d
         ;;
     *)
         echo "Usage: boleylapanel {start|stop|restart|logs|status|update}"
         exit 1
         ;;
 esac
-SCRIPT_EOF
+SCRIPT
 
     chmod +x /usr/local/bin/boleylapanel
-    colorized_echo green "Management script installed"
-}
-
-display_summary() {
-    local SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || echo "YOUR_SERVER_IP")
-
-    clear
-    colorized_echo green "═══════════════════════════════════════════════"
-    colorized_echo green "   ✓ BoleylPanel Installation Complete!     "
-    colorized_echo green "═══════════════════════════════════════════════"
-    echo ""
-    colorized_echo cyan "🌐 Panel Access:"
-    colorized_echo cyan "   URL:      http://${SERVER_IP}:8000"
-    colorized_echo cyan "   API Docs: http://${SERVER_IP}:8000/docs"
-    colorized_echo cyan "   Username: ${ADMIN_USER}"
-    colorized_echo cyan "   Password: ${ADMIN_PASSWORD}"
-    echo ""
-    colorized_echo yellow "🔐 Database Credentials:"
-    colorized_echo yellow "   User:     ${DB_USER}"
-    colorized_echo yellow "   Password: ${DB_PASSWORD}"
-    colorized_echo yellow "   Root:     ${MYSQL_ROOT_PASSWORD}"
-    echo ""
-    colorized_echo blue "📁 Installation Paths:"
-    colorized_echo blue "   App:    ${APP_DIR}"
-    colorized_echo blue "   Data:   ${DATA_DIR}"
-    colorized_echo blue "   Config: ${ENV_FILE}"
-    echo ""
-    colorized_echo magenta "🛠️  Management Commands:"
-    colorized_echo magenta "   boleylapanel start    - Start services"
-    colorized_echo magenta "   boleylapanel stop     - Stop services"
-    colorized_echo magenta "   boleylapanel restart  - Restart services"
-    colorized_echo magenta "   boleylapanel logs     - View logs"
-    colorized_echo magenta "   boleylapanel status   - Check status"
-    colorized_echo magenta "   boleylapanel update   - Update panel"
-    echo ""
-    colorized_echo green "═══════════════════════════════════════════════"
-    echo ""
-    colorized_echo yellow "⚠️  IMPORTANT: Save these credentials securely!"
-    echo ""
+    colorized_echo green "Management script installed (use: boleylapanel {start|stop|restart|logs|status|update})"
 }
 
 # ===========================
 # Main Installation
 # ===========================
 main() {
+    colorized_echo cyan "=================================="
+    colorized_echo cyan "   BoleylPanel Installer"
+    colorized_echo cyan "=================================="
+
     check_running_as_root
-
-    clear
-    colorized_echo blue "═══════════════════════════════════════════════"
-    colorized_echo blue "      BoleylPanel Installation Script        "
-    colorized_echo blue "═══════════════════════════════════════════════"
-    echo ""
-
-    # Check if already installed
-    if [ -d "$APP_DIR" ]; then
-        colorized_echo yellow "⚠️  BoleylPanel is already installed"
-        read -p "Override previous installation? (y/n): " -n 1 -r
-        echo ""
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            colorized_echo red "Installation cancelled"
-            exit 0
-        fi
-        colorized_echo yellow "Removing previous installation..."
-        cd "$APP_DIR" && docker compose down -v >/dev/null 2>&1 || true
-        rm -rf "$APP_DIR"
-    fi
-
-    # Installation steps
-    colorized_echo blue "[1/11] Installing dependencies..."
     install_dependencies
-
-    colorized_echo blue "[2/11] Checking Docker..."
     install_docker
+    detect_compose
+    configure_dns
 
-    colorized_echo blue "[3/11] Copying project files..."
     copy_project_files
-
-    colorized_echo blue "[4/11] Fixing requirements..."
     fix_requirements
-
-    colorized_echo blue "[5/11] Updating Dockerfile..."
     update_dockerfile
-
-    colorized_echo blue "[6/11] Setting up docker-compose..."
-    setup_docker_compose
-
-    colorized_echo blue "[7/11] Interactive configuration..."
-    interactive_setup
-
-    colorized_echo blue "[8/11] Creating environment file..."
+    create_docker_compose
     create_env_file
-
-    colorized_echo blue "[9/11] Building and starting..."
-    build_and_start
-
-    colorized_echo blue "[10/11] Checking services..."
-    check_services
-
-    colorized_echo blue "[11/11] Installing management script..."
     install_management_script
 
-    display_summary
+    colorized_echo blue "Building and starting containers..."
+    cd "$APP_DIR"
+    $COMPOSE build --no-cache
+    $COMPOSE up -d
+
+    colorized_echo green "=================================="
+    colorized_echo green "Installation completed!"
+    colorized_echo cyan "Panel URL: http://$(curl -s ifconfig.me):8000"
+    colorized_echo cyan "Username: $ADMIN_USERNAME"
+    colorized_echo cyan "Password: $ADMIN_PASSWORD"
+    colorized_echo green "=================================="
+    colorized_echo yellow "Management commands:"
+    colorized_echo yellow "  boleylapanel start   - Start services"
+    colorized_echo yellow "  boleylapanel stop    - Stop services"
+    colorized_echo yellow "  boleylapanel logs    - View logs"
+    colorized_echo yellow "  boleylapanel restart - Restart services"
+    colorized_echo yellow "  boleylapanel status  - Check status"
+    colorized_echo green "=================================="
 }
 
 main "$@"
