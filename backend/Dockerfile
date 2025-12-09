@@ -1,4 +1,12 @@
+ARG PYTHON_VERSION=3.11
 
+FROM python:$PYTHON_VERSION-slim AS build
+
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# نصب پیش‌نیازهای build و upgrade pip, setuptools, wheel, cython
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        build-essential \
@@ -12,9 +20,23 @@ RUN apt-get update \
     && python3 -m pip install --upgrade pip setuptools wheel cython \
     && rm -rf /var/lib/apt/lists/*
 
-
+# کپی requirements
 COPY ./requirements.txt /app/
 
+# نصب requirements
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-RUN pip install --no-cache-dir pyyaml>=6.0 \
-    && pip install --no-cache-dir -r /app/requirements.txt --no-deps
+# -------------------------
+# Stage دوم: image سبک
+FROM python:$PYTHON_VERSION-slim
+
+WORKDIR /app
+
+# کپی پکیج‌ها و باینری‌ها
+COPY --from=build /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=build /usr/local/bin /usr/local/bin
+
+# کپی پروژه
+COPY . /app
+
+CMD ["bash", "-c", "alembic upgrade head; python main.py"]
