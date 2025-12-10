@@ -107,14 +107,35 @@ echo_color GREEN "✓ Dockerfile created (IPv4-optimized)"
 
 # Generate requirements.txt
 cat > requirements.txt <<'EOF'
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-sqlalchemy==2.0.25
-pymysql==1.1.0
-cryptography==42.0.0
-python-multipart==0.0.6
-pydantic==2.5.3
-pydantic-settings==2.1.0
+# Web Framework
+fastapi==0.115.5
+uvicorn[standard]==0.24.0
+
+# Data Validation (V2 - جدیدترین)
+pydantic==2.10.3
+pydantic-settings==2.6.1
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# Database
+sqlalchemy==2.0.36
+pymysql==1.1.1
+cryptography==44.0.0
+alembic==1.14.0
+
+# Authentication
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+
+# File Upload
+python-multipart==0.0.17
+
+# HTTP Client
+httpx==0.27.2
+
+
+
 EOF
 
 echo_color GREEN "✓ requirements.txt created"
