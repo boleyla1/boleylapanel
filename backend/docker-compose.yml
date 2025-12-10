@@ -1,50 +1,27 @@
-version: '3.8'
+version: "3.9"
 
 services:
   mysql:
     image: mysql:8.0
-    container_name: boleylapanel-mysql
-    restart: always
-    ports:
-      - "3306:3306"
-    env_file: .env
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_ROOT_HOST: '%'
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-    command:
-      - --character_set_server=utf8mb4
-      - --collation_server=utf8mb4_unicode_ci
-      - --log-bin=mysql-bin
-      - --binlog_expire_logs_seconds=1209600
     volumes:
-      - /var/lib/boleylapanel/mysql:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "${MYSQL_USER}", "--password=${MYSQL_PASSWORD}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
+      - mysql_data:/var/lib/mysql
+    restart: always
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: boleylapanel-backend
-    restart: always
+    build: ./backend
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
     ports:
       - "8000:8000"
-    env_file: .env
     depends_on:
-      mysql:
-        condition: service_healthy
-    volumes:
-      - /var/lib/boleylapanel:/var/lib/boleylapanel
-      - /var/lib/boleylapanel/logs:/var/lib/boleylapanel/logs
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
+      - mysql
+    restart: always
+
+volumes:
+  mysql_data:
+`
