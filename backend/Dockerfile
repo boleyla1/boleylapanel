@@ -2,18 +2,7 @@ FROM python:3.12-bullseye
 
 WORKDIR /code
 
-RUN apt-get update -qq \
- && apt-get install -y --no-install-recommends \
-        apt-transport-https \
-        ca-certificates \
-        gnupg \
-        lsb-release \
-        build-essential \
-        gcc \
-        python3-dev \
-        default-libmysqlclient-dev \
-        curl \
- && rm -rf /var/lib/apt/lists/*
+
 
 
 COPY ./requirements.txt /code/
