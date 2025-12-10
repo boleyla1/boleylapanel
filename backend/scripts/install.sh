@@ -1,68 +1,59 @@
+
 #!/bin/bash
 
-# 1. ساخت دایرکتوری‌ها
-mkdir -p /opt/boleylapanel /var/lib/boleylapanel/mysql
+set -e
 
-# 2. ساخت Dockerfile با Mirror سریع
-cat > /opt/boleylapanel/Dockerfile <<'EOF'
-FROM python:3.11-slim
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-# Force IPv4 + Use Fast Mirror
-RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4 && \
-    sed -i 's|deb.debian.org|mirrors.kernel.org/debian|g' /etc/apt/sources.list.d/debian.sources
+echo_color() {
+    echo -e "${!1}${2}${NC}"
+}
 
-# Install dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    default-libmysqlclient-dev \
-    build-essential \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+APP_DIR="/opt/boleylapanel"
+DATA_DIR="/var/lib/boleylapanel"
 
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-EOF
+echo_color BLUE "🚀 Boleylapanel Installer (MySQL-Only, Optimized)"
+echo ""
 
-# 3. ساخت requirements.txt
-cat > /opt/boleylapanel/requirements.txt <<'EOF'
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-sqlalchemy==2.0.23
-pymysql==1.1.0
-cryptography==41.0.7
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-python-multipart==0.0.6
-pydantic==2.5.0
-pydantic-settings==2.1.0
-EOF
+# Check root
+if [ "$EUID" -ne 0 ]; then
+    echo_color RED "Please run as root (sudo)"
+    exit 1
+fi
 
-# 4. ساخت .env
-MYSQL_ROOT_PASSWORD=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20)
-MYSQL_USER_PASSWORD=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20)
+# Detect OS
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$ID
+else
+    echo_color RED "Cannot detect OS"
+    exit 1
+fi
 
-cat > /opt/boleylapanel/.env <<EOF
-MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
-MYSQL_DATABASE=boleylapanel
-MYSQL_USER=boleylapanel
-MYSQL_PASSWORD=$MYSQL_USER_PASSWORD
-SQLALCHEMY_DATABASE_URL=mysql+pymysql://boleylapanel:$MYSQL_USER_PASSWORD@127.0.0.1:3306/boleylapanel
-SECRET_KEY=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=admin
-EOF
+# Install Docker
+if ! command -v docker &> /dev/null; then
+    echo_color YELLOW "Installing Docker..."
+    curl -fsSL https://get.docker.com | sh
+    systemctl enable --now docker
+    echo_color GREEN "✓ Docker installed"
+else
+    echo_color GREEN "✓ Docker already installed"
+fi
 
-# 5. ساخت docker-compose.yml
-cat > /opt/boleylapanel/docker-compose.yml <<'EOF'
+# Create directories
+mkdir -p "$APP_DIR" "$DATA_DIR/mysql"
+cd "$APP_DIR"
+
+# Generate docker-compose.yml
+cat > docker-compose.yml <<'EOF'
 services:
   boleylapanel:
-    image: boleylapanel:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     restart: always
     network_mode: host
     env_file: .env
@@ -76,48 +67,108 @@ services:
     image: mysql:8.0
     restart: always
     network_mode: host
-    command:
-      - --bind-address=127.0.0.1
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
+    env_file: .env
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    command:
+      - --bind-address=127.0.0.1
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --mysqlx=0
     volumes:
       - /var/lib/boleylapanel/mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
 EOF
 
-# 6. ساخت main.py
-cat > /opt/boleylapanel/main.py <<'EOF'
+echo_color GREEN "✓ docker-compose.yml created"
+
+# Generate optimized Dockerfile
+cat > Dockerfile <<'EOF'
+FROM python:3.11-slim
+
+# Force IPv4 + Fast Mirror
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 8000
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+EOF
+
+echo_color GREEN "✓ Dockerfile created (IPv4-optimized)"
+
+# Generate requirements.txt
+cat > requirements.txt <<'EOF'
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+sqlalchemy==2.0.25
+pymysql==1.1.0
+cryptography==42.0.0
+python-multipart==0.0.6
+pydantic==2.5.3
+pydantic-settings==2.1.0
+EOF
+
+echo_color GREEN "✓ requirements.txt created"
+
+# Generate main.py (minimal app)
+cat > main.py <<'EOF'
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
 
 app = FastAPI(title="Boleylapanel")
 
 @app.get("/")
-async def root():
-    return JSONResponse({"message": "Boleylapanel is running!", "status": "ok"})
+def root():
+    return {"status": "ok", "app": "Boleylapanel", "db": "MySQL"}
 
 @app.get("/health")
-async def health():
-    return JSONResponse({"status": "healthy"})
+def health():
+    return {"status": "healthy"}
 EOF
 
-# 7. Build & Run
-cd /opt/boleylapanel
-echo "Starting build with fast mirror..."
-DOCKER_BUILDKIT=1 docker compose up -d --build --pull
+echo_color GREEN "✓ main.py created"
 
-echo "================================"
-echo "Credentials saved in: /opt/boleylapanel/.env"
-echo "MySQL Root Password: $MYSQL_ROOT_PASSWORD"
-echo "MySQL User Password: $MYSQL_USER_PASSWORD"
-echo "================================"
+# Generate .env
+MYSQL_ROOT_PASSWORD=$(tr -dc 'A-Za-z0-9!@#$%^&*' </dev/urandom | head -c 24)
+MYSQL_PASSWORD=$(tr -dc 'A-Za-z0-9!@#$%^&*' </dev/urandom | head -c 24)
+
+cat > .env <<EOF
+# Admin Credentials
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=admin
+
+# Database
+MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+MYSQL_DATABASE=boleylapanel
+MYSQL_USER=boleyla
+MYSQL_PASSWORD=${MYSQL_PASSWORD}
+SQLALCHEMY_DATABASE_URL=mysql+pymysql://boleyla:${MYSQL_PASSWORD}@127.0.0.1:3306/boleylapanel
+EOF
+
+echo_color GREEN "✓ .env created (admin/admin)"
+
+# Start services
+echo ""
+echo_color YELLOW "🔨 Building Docker image (this may take 60-90 seconds)..."
+DOCKER_BUILDKIT=1 docker compose up -d --build
+
+echo ""
+echo_color GREEN "✅ Installation complete!"
+echo ""
+echo_color BLUE "📋 Info:"
+echo "  - App Directory: $APP_DIR"
+echo "  - Data Directory: $DATA_DIR"
+echo "  - Admin: admin / admin"
+echo "  - API: http://localhost:8000"
+echo ""
+echo_color YELLOW "🔍 Check status:"
+echo "  docker compose -f $APP_DIR/docker-compose.yml ps"
+echo "  docker compose -f $APP_DIR/docker-compose.yml logs -f"
