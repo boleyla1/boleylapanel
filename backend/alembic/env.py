@@ -1,67 +1,55 @@
-"""Alembic environment configuration"""
-
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
+import os
 import sys
-from pathlib import Path
 
-# Add backend directory to path
-backend_dir = Path(__file__).parent.parent
-sys.path.insert(0, str(backend_dir))
+# Ensure backend/app is importable
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+APP_DIR = os.path.join(BASE_DIR, "app")
+if APP_DIR not in sys.path:
+    sys.path.append(APP_DIR)
 
-from app.config.settings import settings
-from app.db.base import Base
+from backend.app.config.settings import settings
+from backend.app.db.database import Base
 
-# Import all models to ensure they're registered
-from app.models import User, Server, Config, AuditLog
-
-# this is the Alembic Config object
 config = context.config
 
-# Set database URL from settings
-config.set_main_option("sqlalchemy.url", settings.database_url)
-
-# Interpret the config file for Python logging.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here for 'autogenerate' support
 target_metadata = Base.metadata
 
 
-def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
+def get_database_url():
+    return settings.database_url
+
+
+def run_migrations_offline():
+    url = get_database_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        compare_type=True,
-        compare_server_default=True,
     )
-
     with context.begin_transaction():
         context.run_migrations()
 
 
-def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
+def run_migrations_online():
+    configuration = config.get_section(config.config_ini_section)
+    configuration["sqlalchemy.url"] = get_database_url()
+
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        future=True,
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            compare_type=True,
-            compare_server_default=True,
-        )
-
+        context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()
 
