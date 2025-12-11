@@ -8,75 +8,88 @@ SERVICE_FILE="/etc/systemd/system/$APP_NAME.service"
 BLUE="\e[34m"
 RED="\e[31m"
 GREEN="\e[32m"
-YELLOW="\e[33m"
 RESET="\e[0m"
 
 log() { echo -e "${BLUE}[$APP_NAME]${RESET} $1"; }
 err() { echo -e "${RED}[ERROR]${RESET} $1"; exit 1; }
-fix_dns() {
-    log "Checking & fixing DNS issues..."
-
-    # Fix system DNS
-    if [ ! -f /etc/resolv.conf ] || ! grep -q "nameserver" /etc/resolv.conf; then
-        log "Rebuilding /etc/resolv.conf"
-        echo "nameserver 8.8.8.8" > /etc/resolv.conf
-        echo "nameserver 1.1.1.1" >> /etc/resolv.conf
-    fi
-
-    # Enable systemd-resolved
-    if ! systemctl is-active --quiet systemd-resolved; then
-        log "Enabling systemd-resolved..."
-        systemctl enable --now systemd-resolved || true
-        ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
-    fi
-
-    # Fix Docker daemon DNS
-    mkdir -p /etc/docker
-    echo '{
-  "dns": ["8.8.8.8", "1.1.1.1"]
-}' > /etc/docker/daemon.json
-
-    log "Restarting Docker..."
-    systemctl restart docker || true
-
-    sleep 2
-
-    # Test DNS inside docker
-    if ! docker run --rm busybox nslookup google.com >/dev/null 2>&1; then
-        err "DNS resolution is still failing inside Docker. Manual check needed."
-    fi
-
-    log "DNS is working correctly!"
-}
 
 require_root() {
     if [[ $EUID -ne 0 ]]; then err "Run as root"; fi
 }
 
+# ---------------------------------------------------------
+#                  DNS FIX (Marzban Style)
+# ---------------------------------------------------------
+fix_dns() {
+    log "Checking & fixing system DNS..."
+
+    # Ensure resolv.conf
+    if [ ! -f /etc/resolv.conf ] || ! grep -q "nameserver" /etc/resolv.conf; then
+        log "Rebuilding /etc/resolv.conf"
+        echo "nameserver 1.1.1.1" > /etc/resolv.conf
+        echo "nameserver 8.8.8.8" >> /etc/resolv.conf
+    fi
+
+    # Enable systemd-resolved (if available)
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl enable --now systemd-resolved >/dev/null 2>&1 || true
+        if [ -f /run/systemd/resolve/resolv.conf ]; then
+            ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+        fi
+    fi
+
+    # Docker daemon DNS
+    log "Configuring Docker daemon DNS..."
+    mkdir -p /etc/docker
+    cat <<EOF > /etc/docker/daemon.json
+{
+  "dns": ["1.1.1.1", "8.8.8.8"]
+}
+EOF
+
+    systemctl restart docker >/dev/null 2>&1 || true
+    sleep 2
+
+    # Test DNS inside Docker
+    log "Testing DNS inside Docker..."
+    if ! docker run --rm busybox nslookup google.com >/dev/null 2>&1; then
+        err "DNS resolution FAILED inside Docker. Check VPS DNS."
+    fi
+
+    log "DNS is OK ✔"
+}
+
+# ---------------------------------------------------------
+#                  INSTALL DOCKER
+# ---------------------------------------------------------
 install_docker() {
     if ! command -v docker >/dev/null 2>&1; then
         log "Installing Docker..."
         curl -fsSL https://get.docker.com | sh || err "Docker installation failed"
     fi
-    systemctl enable --now docker >/dev/null 2>&1
+    systemctl enable --now docker || true
 }
 
+# ---------------------------------------------------------
+#              FETCH OR UPDATE GIT REPO
+# ---------------------------------------------------------
 fetch_repo() {
     if [ ! -d "$INSTALL_DIR" ]; then
         log "Cloning repository..."
-        git clone "$REPO_URL" "$INSTALL_DIR" || err "Clone failed"
+        git clone "$REPO_URL" "$INSTALL_DIR" || err "Failed clone"
     else
         log "Updating repository..."
-        cd "$INSTALL_DIR" || err "Cannot cd to install dir"
+        cd "$INSTALL_DIR" || err "Failed to enter install dir"
         git pull
     fi
 }
 
+# ---------------------------------------------------------
+#                ENV GENERATION
+# ---------------------------------------------------------
 generate_env() {
-    mkdir -p "$INSTALL_DIR"
-
-    DB_NAME="boleylapanel"
-    DB_USER="boleylapanel"
+    DB_NAME="boleyla"
+    DB_USER="boleyla"
     DB_PASS="$(openssl rand -hex 12)"
 
 cat <<EOF > "$INSTALL_DIR/mysql.env"
@@ -86,20 +99,22 @@ MYSQL_USER=$DB_USER
 MYSQL_PASSWORD=$DB_PASS
 EOF
 
-    log "mysql.env created"
+    log "mysql.env created ✔"
 }
 
+# ---------------------------------------------------------
+#               DOCKER COMPOSE CREATION
+# ---------------------------------------------------------
 create_compose() {
 cat <<EOF > "$INSTALL_DIR/docker-compose.yml"
-version: "3.9"
-
 services:
 
   mysql:
     image: mysql:8.0
     container_name: boleyla-mysql
     restart: unless-stopped
-    env_file: ./mysql.env
+    env_file:
+      - ./mysql.env
     volumes:
       - ./mysql_data:/var/lib/mysql
     ports:
@@ -119,21 +134,27 @@ services:
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     volumes:
       - ./backend:/app
-
 EOF
 
-    log "docker-compose.yml created"
+    log "docker-compose.yml created ✔"
 }
 
+# ---------------------------------------------------------
+#              START DOCKER COMPOSE
+# ---------------------------------------------------------
 start_docker() {
     cd "$INSTALL_DIR" || err "Install directory missing"
-    docker compose up -d --build || err "Failed to start containers"
+    docker compose up -d --build || err "Docker start failed"
+    log "Docker containers started ✔"
 }
 
+# ---------------------------------------------------------
+#                SYSTEMD SERVICE
+# ---------------------------------------------------------
 create_service() {
 cat <<EOF > "$SERVICE_FILE"
 [Unit]
-Description=BoleylaPanel Service
+Description=BoleylaPanel
 After=docker.service
 Requires=docker.service
 
@@ -150,42 +171,50 @@ EOF
 
     systemctl daemon-reload
     systemctl enable "$APP_NAME"
-    log "Systemd service installed"
+    log "Systemd service installed ✔"
 }
 
-uninstall_all() {
-    log "Stopping service..."
-    systemctl stop "$APP_NAME" 2>/dev/null
-    systemctl disable "$APP_NAME" 2>/dev/null
+# ---------------------------------------------------------
+#                UNINSTALL
+# ---------------------------------------------------------
+uninstall_panel() {
+    systemctl stop "$APP_NAME" 2>/dev/null || true
+    systemctl disable "$APP_NAME" 2>/dev/null || true
     rm -f "$SERVICE_FILE"
     rm -rf "$INSTALL_DIR"
-
-    log "Uninstalled successfully"
+    log "Panel uninstalled successfully ✔"
     exit 0
 }
 
+# ---------------------------------------------------------
+#                  UPDATE
+# ---------------------------------------------------------
 update_panel() {
+    fix_dns
     fetch_repo
     start_docker
-    log "Updated successfully"
+    log "Panel updated ✔"
     exit 0
 }
 
+# ---------------------------------------------------------
+#                 MAIN INSTALL
+# ---------------------------------------------------------
 install_panel() {
     require_root
-    fix_dns      # ← اضافه شده
+    fix_dns
     install_docker
     fetch_repo
     generate_env
     create_compose
     start_docker
     create_service
+    log "Installation completed successfully ✔"
 }
 
-# --------------------------
-#           CLI MODE
-# --------------------------
-
+# ---------------------------------------------------------
+#                 CLI MODE
+# ---------------------------------------------------------
 case "$1" in
     install)
         install_panel
@@ -194,7 +223,7 @@ case "$1" in
         update_panel
         ;;
     uninstall)
-        uninstall_all
+        uninstall_panel
         ;;
     *)
         echo -e "${GREEN}Usage:${RESET}"
@@ -202,7 +231,7 @@ case "$1" in
         echo "  bash install.sh update"
         echo "  bash install.sh uninstall"
         echo
-        echo "Pipe mode:"
+        echo "Pipe Mode:"
         echo "  curl -fsSL $REPO_URL/raw/main/install.sh | bash -s install"
         exit 1
         ;;
