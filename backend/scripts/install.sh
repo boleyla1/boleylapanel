@@ -1,112 +1,163 @@
 #!/bin/bash
 
-set -e
+REPO_URL="https://github.com/boleyla1/boleylapanel"
+INSTALL_DIR="/opt/boleylapanel"
+SERVICE_FILE="/etc/systemd/system/boleylapanel.service"
 
-echo ""
-echo "=========================================="
-echo "   BoleylaPanel Installer (Hybrid Mode)"
-echo "=========================================="
-echo ""
+RED="\e[31m"
+GREEN="\e[32m"
+YELLOW="\e[33m"
+BLUE="\e[34m"
+RESET="\e[0m"
 
-# Detect or install Docker
-if ! command -v docker &> /dev/null; then
-    echo "Docker not found. Installing Docker..."
-    curl -fsSL https://get.docker.com | bash
-    systemctl enable docker
-    systemctl start docker
-fi
+print() {
+    echo -e "${BLUE}[BOLEYLA]${RESET} $1"
+}
 
-# Detect docker compose plugin
-if ! docker compose version &> /dev/null; then
-    echo "Docker Compose plugin not found. Installing..."
-    DOCKER_CONFIG=${DOCKER_CONFIG:-$HOME/.docker}
-    mkdir -p $DOCKER_CONFIG/cli-plugins
-    curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m) \
-        -o $DOCKER_CONFIG/cli-plugins/docker-compose
-    chmod +x $DOCKER_CONFIG/cli-plugins/docker-compose
-fi
+error() {
+    echo -e "${RED}[ERROR]${RESET} $1"
+    exit 1
+}
 
-INSTALL_PATH="/opt/boleylapanel"
-
-echo ""
-echo "Installation path: $INSTALL_PATH"
-echo ""
-
-if [ -d "$INSTALL_PATH" ]; then
-    echo "Directory already exists: $INSTALL_PATH"
-    echo -n "Do you want to overwrite it? (y/n): "
-    read overwrite
-    if [ "$overwrite" != "y" ]; then
-        echo "Installation cancelled."
-        exit 1
+check_root() {
+    if [ "$EUID" -ne 0 ]; then
+        error "Run as root!"
     fi
-    rm -rf "$INSTALL_PATH"
-fi
+}
 
-mkdir -p "$INSTALL_PATH"
+install_docker() {
+    if ! command -v docker >/dev/null 2>&1; then
+        print "Installing Docker..."
+        curl -fsSL https://get.docker.com | sh || error "Failed to install Docker"
+    else
+        print "Docker found."
+    fi
 
-echo ""
-echo "Fetching latest project..."
-git clone https://github.com/boleyla1/boleylapanel "$INSTALL_PATH"
+    if ! systemctl is-active --quiet docker; then
+        systemctl enable --now docker || error "Failed to start Docker"
+    fi
+}
 
-cd "$INSTALL_PATH/backend"
+clone_or_update_repo() {
+    if [ ! -d "$INSTALL_DIR" ]; then
+        print "Cloning repository..."
+        git clone "$REPO_URL" "$INSTALL_DIR" || error "Failed to clone repository"
+    else
+        print "Updating existing installation..."
+        cd "$INSTALL_DIR" || error "Failed to enter install directory"
+        git pull || error "Git pull failed"
+    fi
+}
 
-# Interactive Hybrid ENV builder
-echo ""
-echo "=========================================="
-echo "       Environment Configuration"
-echo "=========================================="
-echo ""
+generate_env() {
+    print "Creating .env file..."
 
-# Defaults
-DEF_MYSQL_ROOT_PASS=$(openssl rand -base64 16)
-DEF_MYSQL_USER="boleylapanel"
-DEF_MYSQL_PASS=$(openssl rand -base64 16)
-DEF_MYSQL_DB="boleylapanel"
+    read -p "MySQL database name [boleylapanel]: " DB_NAME
+    DB_NAME=${DB_NAME:-boleylapanel}
 
-read -p "MySQL root password [$DEF_MYSQL_ROOT_PASS]: " MYSQL_ROOT_PASSWORD
-MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-$DEF_MYSQL_ROOT_PASS}
+    read -p "MySQL user [boleylapanel]: " DB_USER
+    DB_USER=${DB_USER:-boleylapanel}
 
-read -p "MySQL user [$DEF_MYSQL_USER]: " MYSQL_USER
-MYSQL_USER=${MYSQL_USER:-$DEF_MYSQL_USER}
+    read -p "MySQL password: " DB_PASS
 
-read -p "MySQL user password [$DEF_MYSQL_PASS]: " MYSQL_PASSWORD
-MYSQL_PASSWORD=${MYSQL_PASSWORD:-$DEF_MYSQL_PASS}
-
-read -p "MySQL database name [$DEF_MYSQL_DB]: " MYSQL_DATABASE
-MYSQL_DATABASE=${MYSQL_DATABASE:-$DEF_MYSQL_DB}
-
-DATABASE_URL="mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}"
-
-echo "Writing .env file..."
-cat > .env <<EOF
-MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
-MYSQL_USER=${MYSQL_USER}
-MYSQL_PASSWORD=${MYSQL_PASSWORD}
-MYSQL_DATABASE=${MYSQL_DATABASE}
-
-DATABASE_URL=${DATABASE_URL}
+    cat <<EOF > "$INSTALL_DIR/.env"
+MYSQL_DATABASE=$DB_NAME
+MYSQL_USER=$DB_USER
+MYSQL_PASSWORD=$DB_PASS
+MYSQL_ROOT_PASSWORD=$DB_PASS
 EOF
 
-echo ""
-echo "ENV created successfully."
-echo ""
+    print ".env created successfully."
+}
 
-echo "Starting containers..."
+start_containers() {
+    print "Starting Docker containers..."
 
-cd "$INSTALL_PATH"
+    cd "$INSTALL_DIR" || error "Install dir not found"
 
-docker compose up -d --build
+    if [ ! -f "docker-compose.yml" ]; then
+        error "docker-compose.yml not found inside $INSTALL_DIR"
+    fi
 
-echo ""
-echo "=========================================="
-echo "         Installation Completed"
-echo "=========================================="
-echo "Backend URL: http://<server-ip>:8000"
-echo "MySQL User:  $MYSQL_USER"
-echo "MySQL Pass:  $MYSQL_PASSWORD"
-echo "Database:    $MYSQL_DATABASE"
-echo ""
-echo "Log viewer:"
-echo "  docker logs -f boleylapanel-backend"
-echo ""
+    docker compose down --remove-orphans >/dev/null 2>&1
+    docker compose up -d || error "Failed to start containers"
+}
+
+create_service() {
+    print "Creating systemd service..."
+
+    cat <<EOF > "$SERVICE_FILE"
+[Unit]
+Description=BoleylaPanel Service
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker compose -f $INSTALL_DIR/docker-compose.yml up -d
+ExecStop=/usr/bin/docker compose -f $INSTALL_DIR/docker-compose.yml down
+RemainAfterExit=yes
+WorkingDirectory=$INSTALL_DIR
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable boleylapanel
+    print "Service installed."
+}
+
+uninstall() {
+    print "Stopping service..."
+    systemctl stop boleylapanel 2>/dev/null
+    systemctl disable boleylapanel 2>/dev/null
+    rm -f "$SERVICE_FILE"
+
+    print "Removing installation..."
+    rm -rf "$INSTALL_DIR"
+
+    print "Done."
+    exit 0
+}
+
+update() {
+    print "Updating BoleylaPanel..."
+    clone_or_update_repo
+    start_containers
+    print "Update completed."
+    exit 0
+}
+
+menu() {
+    echo -e "
+${GREEN}1) Install BoleylaPanel
+2) Update
+3) Uninstall
+${RESET}
+"
+    read -p "Choose an option: " OPT
+
+    case $OPT in
+        1)
+            check_root
+            install_docker
+            clone_or_update_repo
+            generate_env
+            start_containers
+            create_service
+            print "Installation completed."
+            ;;
+        2)
+            update
+            ;;
+        3)
+            uninstall
+            ;;
+        *)
+            error "Invalid option."
+            ;;
+    esac
+}
+
+menu
