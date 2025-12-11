@@ -50,7 +50,7 @@ clone_or_update_repo() {
 }
 
 generate_env() {
-    print "Creating .env file..."
+    print "Creating mysql.env..."
 
     read -p "MySQL database name [boleylapanel]: " DB_NAME
     DB_NAME=${DB_NAME:-boleylapanel}
@@ -60,15 +60,16 @@ generate_env() {
 
     read -p "MySQL password: " DB_PASS
 
-    cat <<EOF > "$INSTALL_DIR/.env"
+    cat <<EOF > "$INSTALL_DIR/backend/mysql.env"
 MYSQL_DATABASE=$DB_NAME
 MYSQL_USER=$DB_USER
 MYSQL_PASSWORD=$DB_PASS
 MYSQL_ROOT_PASSWORD=$DB_PASS
 EOF
 
-    print ".env created successfully."
+    print "mysql.env created successfully."
 }
+
 
 start_containers() {
     print "Starting Docker containers..."
