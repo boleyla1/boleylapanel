@@ -73,10 +73,10 @@ EOF
 start_containers() {
     print "Starting Docker containers..."
 
-    cd "$INSTALL_DIR" || error "Install dir not found"
+    cd "$INSTALL_DIR/backend" || error "backend directory not found"
 
     if [ ! -f "docker-compose.yml" ]; then
-        error "docker-compose.yml not found inside $INSTALL_DIR"
+        error "docker-compose.yml not found inside $INSTALL_DIR/backend"
     fi
 
     docker compose down --remove-orphans >/dev/null 2>&1
