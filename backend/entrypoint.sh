@@ -1,14 +1,13 @@
-#!/usr/bin/env sh
+#!/bin/bash
 set -e
 
 echo "Waiting for database..."
-until nc -z "$DB_HOST" "$DB_PORT"; do
+while ! nc -z mysql 3306; do
   sleep 1
 done
 
+echo "Running migrations..."
 alembic upgrade head
 
-exec uvicorn backend.app.main:app \
-  --host 0.0.0.0 \
-  --port 8000 \
-  --proxy-headers
+echo "Starting BoleylaPanel..."
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000

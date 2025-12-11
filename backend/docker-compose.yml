@@ -1,28 +1,30 @@
-version: "3.9"
+version: "3.8"
 
 services:
-  mysql:
-    image: mysql:8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-    volumes:
-      - mysql_data:/var/lib/mysql
-    restart: always
-
-  backend:
+  boleylapanel:
     build: ./backend
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
+    container_name: boleylapanel
+    restart: always
+    env_file: .env
     ports:
       - "8000:8000"
     depends_on:
       - mysql
+    networks:
+      - boleylanet
+
+  mysql:
+    image: mysql:8
+    container_name: boleylapanel-mysql
     restart: always
+    env_file: .env
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - boleylanet
 
 volumes:
   mysql_data:
 
-
+networks:
+  boleylanet:
