@@ -13,6 +13,41 @@ RESET="\e[0m"
 
 log() { echo -e "${BLUE}[$APP_NAME]${RESET} $1"; }
 err() { echo -e "${RED}[ERROR]${RESET} $1"; exit 1; }
+fix_dns() {
+    log "Checking & fixing DNS issues..."
+
+    # Fix system DNS
+    if [ ! -f /etc/resolv.conf ] || ! grep -q "nameserver" /etc/resolv.conf; then
+        log "Rebuilding /etc/resolv.conf"
+        echo "nameserver 8.8.8.8" > /etc/resolv.conf
+        echo "nameserver 1.1.1.1" >> /etc/resolv.conf
+    fi
+
+    # Enable systemd-resolved
+    if ! systemctl is-active --quiet systemd-resolved; then
+        log "Enabling systemd-resolved..."
+        systemctl enable --now systemd-resolved || true
+        ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+    fi
+
+    # Fix Docker daemon DNS
+    mkdir -p /etc/docker
+    echo '{
+  "dns": ["8.8.8.8", "1.1.1.1"]
+}' > /etc/docker/daemon.json
+
+    log "Restarting Docker..."
+    systemctl restart docker || true
+
+    sleep 2
+
+    # Test DNS inside docker
+    if ! docker run --rm busybox nslookup google.com >/dev/null 2>&1; then
+        err "DNS resolution is still failing inside Docker. Manual check needed."
+    fi
+
+    log "DNS is working correctly!"
+}
 
 require_root() {
     if [[ $EUID -ne 0 ]]; then err "Run as root"; fi
@@ -138,13 +173,13 @@ update_panel() {
 
 install_panel() {
     require_root
+    fix_dns      # ← اضافه شده
     install_docker
     fetch_repo
     generate_env
     create_compose
     start_docker
     create_service
-    log "Installed successfully!"
 }
 
 # --------------------------
