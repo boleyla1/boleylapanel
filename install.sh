@@ -40,15 +40,9 @@ fetch_repo() {
 generate_env() {
     mkdir -p "$INSTALL_DIR"
 
-    log "Creating environment file..."
-
-    read -p "MySQL database name [boleylapanel]: " DB_NAME
-    DB_NAME=${DB_NAME:-boleylapanel}
-
-    read -p "MySQL user [boleylapanel]: " DB_USER
-    DB_USER=${DB_USER:-boleylapanel}
-
-    read -p "MySQL password: " DB_PASS
+    DB_NAME="boleylapanel"
+    DB_USER="boleylapanel"
+    DB_PASS="$(openssl rand -hex 12)"
 
 cat <<EOF > "$INSTALL_DIR/mysql.env"
 MYSQL_ROOT_PASSWORD=$DB_PASS
@@ -79,7 +73,6 @@ services:
 
   backend:
     build: ./backend
-    working_dir: /app
     container_name: boleyla-backend
     restart: unless-stopped
     depends_on:
@@ -99,7 +92,7 @@ EOF
 
 start_docker() {
     cd "$INSTALL_DIR" || err "Install directory missing"
-    docker compose up -d || err "Failed to start containers"
+    docker compose up -d --build || err "Failed to start containers"
 }
 
 create_service() {
@@ -130,11 +123,9 @@ uninstall_all() {
     systemctl stop "$APP_NAME" 2>/dev/null
     systemctl disable "$APP_NAME" 2>/dev/null
     rm -f "$SERVICE_FILE"
-
-    log "Removing installation folder..."
     rm -rf "$INSTALL_DIR"
 
-    log "Done."
+    log "Uninstalled successfully"
     exit 0
 }
 
@@ -145,31 +136,39 @@ update_panel() {
     exit 0
 }
 
-menu() {
-    echo -e "
-${GREEN}1) Install Panel
-2) Update
-3) Uninstall
-4) Status
-${RESET}
-"
-    read -p "Choose: " CH
-    case $CH in
-        1)
-            require_root
-            install_docker
-            fetch_repo
-            generate_env
-            create_compose
-            start_docker
-            create_service
-            log "BoleylaPanel installed successfully!"
-            ;;
-        2) update_panel ;;
-        3) uninstall_all ;;
-        4) docker ps ;;
-        *) err "Invalid option" ;;
-    esac
+install_panel() {
+    require_root
+    install_docker
+    fetch_repo
+    generate_env
+    create_compose
+    start_docker
+    create_service
+    log "Installed successfully!"
 }
 
-menu
+# --------------------------
+#           CLI MODE
+# --------------------------
+
+case "$1" in
+    install)
+        install_panel
+        ;;
+    update)
+        update_panel
+        ;;
+    uninstall)
+        uninstall_all
+        ;;
+    *)
+        echo -e "${GREEN}Usage:${RESET}"
+        echo "  bash install.sh install"
+        echo "  bash install.sh update"
+        echo "  bash install.sh uninstall"
+        echo
+        echo "Pipe mode:"
+        echo "  curl -fsSL $REPO_URL/raw/main/install.sh | bash -s install"
+        exit 1
+        ;;
+esac
