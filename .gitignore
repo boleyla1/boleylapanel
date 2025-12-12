@@ -69,3 +69,4 @@ temp/
 
 #  elembic
 backend/alembic/versions
+.env

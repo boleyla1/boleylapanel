@@ -1,11 +1,15 @@
-from MySQLdb import IntegrityError
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.crud.server import server
 from app.models.server import ServerStatus
 from app.schemas.server import ServerCreate, ServerUpdate
 from typing import List, Optional
-
+from sqlalchemy.exc import (
+    IntegrityError,
+    OperationalError,
+    DatabaseError,
+    DataError
+)
 crud_server = server
 
 

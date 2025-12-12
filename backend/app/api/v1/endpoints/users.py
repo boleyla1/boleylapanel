@@ -1,215 +1,170 @@
 # app/api/v1/endpoints/users.py
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
 
-from app.api.deps import get_db, get_current_user, get_current_admin_user
-from app.models.user import User, UserRole
-from app.schemas.user import (
-    UserCreate,
-    UserUpdate,
-    UserResponse,
-    UserExtended,
-    UserResetTraffic,
-    UserExtendExpiry,
-    UserAddTraffic
-)
-from app.schemas.traffic import TrafficStatsResponse
-from app.services.user_service import UserService
+from app.api.deps import get_db, get_current_admin_user
+from app.models.user import User
+from app.schemas.user import UserCreate, UserUpdate, UserResponse
 
 router = APIRouter()
 
 
-@router.get("/me", response_model=UserExtended)
-def get_current_user_info(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+@router.get("/", response_model=List[UserResponse])
+def get_users(
+        skip: int = 0,
+        limit: int = 100,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_admin_user)
 ):
-    """Get current user's detailed information"""
-    return UserService.get_user(db, current_user.id)
-
-
-@router.get("/", response_model=List[UserExtended])
-def list_users(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
-    role: Optional[str] = Query(None, regex="^(admin|user|viewer)$"),
-    is_active: Optional[bool] = None,
-    current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
-):
-    """List all users (Admin only)"""
-    role_enum = UserRole(role) if role else None
-    users = UserService.get_users(
-        db,
-        skip=skip,
-        limit=limit,
-        role=role_enum,
-        is_active=is_active
-    )
+    """Get all users (Admin only)"""
+    users = db.query(User).offset(skip).limit(limit).all()
     return users
 
 
-@router.get("/{user_id}", response_model=UserExtended)
+@router.get("/{user_id}", response_model=UserResponse)
 def get_user(
-    user_id: int,
-    current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
+        user_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_admin_user)
 ):
-    """Get user by ID (Admin only)"""
-    user = UserService.get_user(db, user_id)
+    """Get specific user by ID (Admin only)"""
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail=f"User with ID {user_id} not found"
         )
     return user
 
 
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
-    user_in: UserCreate,
-    current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
+        user_in: UserCreate,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_admin_user)
 ):
     """Create new user (Admin only)"""
-    # Check username uniqueness
-    if UserService.get_user_by_username(db, user_in.username):
+    from app.core.security import get_password_hash
+
+    # Check username exists
+    if db.query(User).filter(User.username == user_in.username).first():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already registered"
+            detail="Username already exists"
         )
 
-    # Check email uniqueness
-    if UserService.get_user_by_email(db, user_in.email):
+    # Check email exists (if provided)
+    if user_in.email and db.query(User).filter(User.email == user_in.email).first():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
+            detail="Email already exists"
         )
 
-    user = UserService.create_user(db, user_in)
-    return user
+    # Create user
+    db_user = User(
+        username=user_in.username,
+        email=user_in.email,
+        hashed_password=get_password_hash(user_in.password),
+        role=user_in.role if hasattr(user_in, 'role') else "user",
+        is_active=user_in.is_active if hasattr(user_in, 'is_active') else True,
+        data_limit=user_in.data_limit if hasattr(user_in, 'data_limit') else None,
+        expire_date=user_in.expire_date if hasattr(user_in, 'expire_date') else None
+    )
+
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
 
 
 @router.put("/{user_id}", response_model=UserResponse)
 def update_user(
-    user_id: int,
-    user_in: UserUpdate,
-    current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
+        user_id: int,
+        user_in: UserUpdate,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_admin_user)
 ):
     """Update user (Admin only)"""
-    user = UserService.get_user(db, user_id)
+    from app.core.security import get_password_hash
+
+    # Get user
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail=f"User with ID {user_id} not found"
         )
 
-    # Check username uniqueness if changing
+    # Check username uniqueness (if changed)
     if user_in.username and user_in.username != user.username:
-        if UserService.get_user_by_username(db, user_in.username):
+        if db.query(User).filter(User.username == user_in.username).first():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username already taken"
+                detail="Username already exists"
             )
 
-    # Check email uniqueness if changing
+    # Check email uniqueness (if changed)
     if user_in.email and user_in.email != user.email:
-        if UserService.get_user_by_email(db, user_in.email):
+        if db.query(User).filter(User.email == user_in.email).first():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already taken"
+                detail="Email already exists"
             )
 
-    updated_user = UserService.update_user(db, user, user_in)
-    return updated_user
+    # Update fields
+    update_data = user_in.dict(exclude_unset=True)
+    if 'password' in update_data and update_data['password']:
+        update_data['hashed_password'] = get_password_hash(update_data.pop('password'))
+
+    for field, value in update_data.items():
+        setattr(user, field, value)
+
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
-    user_id: int,
-    current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
+        user_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_admin_user)
 ):
-    """Deactivate user (Admin only)"""
-    user = UserService.get_user(db, user_id)
+    """Delete user (Admin only)"""
+    # Get user
+    user = db.query(User).filter(User.id == user_id).first()
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail=f"User with ID {user_id} not found"
         )
 
-    UserService.delete_user(db, user)
-    return None
-
-
-# ===== Traffic Management Endpoints =====
-
-@router.post("/traffic/reset", response_model=UserResponse)
-def reset_user_traffic(
-    request: UserResetTraffic,
-    current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
-):
-    """Reset user's traffic usage (Admin only)"""
-    try:
-        user = UserService.reset_user_traffic(db, request)
-        return user
-    except ValueError as e:
+    # Prevent self-deletion
+    if user.id == current_user.id:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot delete your own account"
         )
 
+    # Prevent deleting last admin
+    if user.role == "admin":
+        admin_count = db.query(User).filter(User.role == "admin").count()
+        if admin_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete the last admin user"
+            )
 
-@router.post("/expiry/extend", response_model=UserResponse)
-def extend_user_expiry(
-    request: UserExtendExpiry,
-    current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
-):
-    """Extend user's expiration date (Admin only)"""
     try:
-        user = UserService.extend_user_expiry(db, request)
-        return user
-    except ValueError as e:
+        db.delete(user)
+        db.commit()
+        return None  # 204 No Content
+    except Exception as e:
+        db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
-
-
-@router.post("/traffic/add", response_model=UserResponse)
-def add_user_traffic(
-    request: UserAddTraffic,
-    current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
-):
-    """Add traffic quota to user (Admin only)"""
-    try:
-        user = UserService.add_user_traffic(db, request)
-        return user
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
-
-
-@router.get("/{user_id}/traffic/stats", response_model=TrafficStatsResponse)
-def get_user_traffic_stats(
-    user_id: int,
-    current_user: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
-):
-    """Get detailed traffic statistics for a user (Admin only)"""
-    try:
-        stats = UserService.get_user_traffic_stats(db, user_id)
-        return stats
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete user: {str(e)}"
         )

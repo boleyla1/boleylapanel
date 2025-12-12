@@ -1,30 +1,33 @@
-version: "3.8"
-
 services:
-  boleylapanel:
-    build: ./backend
-    container_name: boleylapanel
-    restart: always
-    env_file: .env
-    ports:
-      - "8000:8000"
-    depends_on:
-      - mysql
-    networks:
-      - boleylanet
-
   mysql:
-    image: mysql:8
+    image: mysql:8.0
     container_name: boleylapanel-mysql
-    restart: always
-    env_file: .env
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     volumes:
       - mysql_data:/var/lib/mysql
-    networks:
-      - boleylanet
+    command: --default-authentication-plugin=mysql_native_password --bind-address=127.0.0.1 --port=3306
+
+  backend:
+    image: boleyla1/boleylapanel-backend:latest
+    container_name: boleylapanel-backend
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - mysql
+    environment:
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@127.0.0.1:3306/${MYSQL_DATABASE}
+      SECRET_KEY: ${SECRET_KEY}
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+    volumes:
+      - ./xray/output_configs:/app/xray/output_configs
+      - ./logs:/app/logs
 
 volumes:
   mysql_data:
-
-networks:
-  boleylanet:
