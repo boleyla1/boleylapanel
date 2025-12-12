@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from app.api.v1.api import api_router
 from app.db.database import SessionLocal
 from app.models import User
@@ -25,7 +26,17 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
+app.include_router(api_router, prefix="/api/v1")
 
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/{path:path}")
+async def spa(path: str):
+    if path.startswith(("api/", "static/")):
+        return {"detail": "Not found"}
+    return FileResponse("static/index.html")
 @app.get("/")
 async def root():
     return {
