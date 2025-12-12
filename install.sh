@@ -60,14 +60,15 @@ install_docker() {
 
 detect_compose() {
     if docker compose version &>/dev/null; then
-        COMPOSE="docker compose"
+        COMPOSE=(docker compose)
     elif docker-compose version &>/dev/null; then
-        COMPOSE="docker-compose"
+        COMPOSE=(docker-compose)
     else
         colorized_echo red "❌ Docker Compose not found"
         exit 1
     fi
 }
+
 
 create_directories() {
     mkdir -p "$APP_DIR" "$DATA_DIR" \
@@ -178,9 +179,10 @@ EOF
 # ========== Services ==========
 start_services() {
     cd "$APP_DIR" || exit 1
-    $COMPOSE pull
-    $COMPOSE up -d
+    "${COMPOSE[@]}" pull
+    "${COMPOSE[@]}" up -d
 }
+
 
 
 wait_for_mysql() {
