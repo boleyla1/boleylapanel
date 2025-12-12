@@ -268,6 +268,59 @@ uninstall_command() {
 
     colorized_echo green "✅ BoleylaPanel uninstalled"
 }
+detect_compose() {
+    if docker compose version >/dev/null 2>&1; then
+        COMPOSE="docker compose"
+    elif docker-compose version >/dev/null 2>&1; then
+        COMPOSE="docker-compose"
+    else
+        echo "❌ docker compose not found"
+        exit 1
+    fi
+}
+
+detect_compose
+cd "$APP_DIR" || {
+    echo "❌ $APP_DIR not found"
+    exit 1
+}
+
+case "$1" in
+    up|start)
+        $COMPOSE up -d
+        ;;
+    down|stop)
+        $COMPOSE down
+        ;;
+    restart)
+        $COMPOSE restart
+        ;;
+    status)
+        $COMPOSE ps
+        ;;
+    logs)
+        shift
+        $COMPOSE logs -f "$@"
+        ;;
+    update)
+        $COMPOSE pull
+        $COMPOSE up -d --force-recreate --remove-orphans
+        ;;
+    uninstall)
+        bash install.sh uninstall
+        ;;
+    help|"")
+        echo "Usage:"
+        echo "  boleyla up|down|restart|status|logs|update|uninstall"
+        ;;
+    *)
+        echo "❌ Unknown command: $1"
+        echo "Run: boleyla help"
+        ;;
+esac
+EOF
+
+chmod +x /usr/local/bin/boleyla
 
 # =========================
 # Entrypoint
