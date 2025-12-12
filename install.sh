@@ -177,11 +177,14 @@ EOF
 
 # ========== Services ==========
 start_services() {
+    cd "$APP_DIR" || exit 1
     $COMPOSE pull
     $COMPOSE up -d
 }
 
+
 wait_for_mysql() {
+    cd "$APP_DIR" || exit 1
     colorized_echo yellow "⏳ Waiting for MySQL..."
     for i in {1..30}; do
         docker exec boleylapanel-mysql mysqladmin ping -h127.0.0.1 \
@@ -191,6 +194,7 @@ wait_for_mysql() {
     colorized_echo red "❌ MySQL not ready"
     exit 1
 }
+
 
 # ========== Migrations ==========
 run_db_migrations() {
