@@ -128,7 +128,6 @@ EOF
 
     colorized_echo green "✅ docker-compose.yml created"
 }
-
 ask_database_info() {
     colorized_echo cyan "🔧 Database Configuration"
 
