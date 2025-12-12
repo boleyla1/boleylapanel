@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-# Colors
+# ========== Colors ==========
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -9,7 +9,7 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# Variables
+# ========== Variables ==========
 INSTALL_DIR="/opt"
 APP_NAME="boleylapanel"
 APP_DIR="$INSTALL_DIR/$APP_NAME"
@@ -17,25 +17,23 @@ DATA_DIR="/var/lib/$APP_NAME"
 COMPOSE_FILE="$APP_DIR/docker-compose.yml"
 ENV_FILE="$APP_DIR/.env"
 
-DATABASE_TYPE="mysql"
-INSTALL_FRONTEND=false
-
+# ========== Helpers ==========
 colorized_echo() {
-    local color=$1
-    local text=$2
-    case $color in
-        red) printf "${RED}${text}${NC}\n";;
-        green) printf "${GREEN}${text}${NC}\n";;
-        yellow) printf "${YELLOW}${text}${NC}\n";;
-        blue) printf "${BLUE}${text}${NC}\n";;
-        cyan) printf "${CYAN}${text}${NC}\n";;
-        *) echo "${text}";;
+    local c=$1
+    local t=$2
+    case $c in
+        red) printf "${RED}${t}${NC}\n" ;;
+        green) printf "${GREEN}${t}${NC}\n" ;;
+        yellow) printf "${YELLOW}${t}${NC}\n" ;;
+        blue) printf "${BLUE}${t}${NC}\n" ;;
+        cyan) printf "${CYAN}${t}${NC}\n" ;;
+        *) echo "$t" ;;
     esac
 }
 
 check_running_as_root() {
     [ "$(id -u)" = "0" ] || {
-        colorized_echo red "❌ This script must be run as root."
+        colorized_echo red "❌ This script must be run as root"
         exit 1
     }
 }
@@ -46,14 +44,14 @@ detect_os() {
         exit 1
     }
     . /etc/os-release
-    colorized_echo green "✅ Detected OS: $ID $VERSION_ID"
+    colorized_echo green "✅ OS detected: $ID $VERSION_ID"
 }
 
 install_docker() {
-    command -v docker &>/dev/null && {
+    if command -v docker &>/dev/null; then
         colorized_echo green "✅ Docker already installed"
         return
-    }
+    fi
     colorized_echo blue "📦 Installing Docker..."
     curl -fsSL https://get.docker.com | sh
     systemctl enable docker
@@ -78,8 +76,9 @@ create_directories() {
              "$APP_DIR/backup"
 }
 
+# ========== Database ==========
 ask_database_info() {
-    colorized_echo cyan "🔧 Database Configuration"
+    colorized_echo cyan "🗄 Database configuration"
 
     read -rp "Database name [boleylapanel]: " MYSQL_DATABASE
     MYSQL_DATABASE=${MYSQL_DATABASE:-boleylapanel}
@@ -88,14 +87,14 @@ ask_database_info() {
     MYSQL_USER=${MYSQL_USER:-boleyla}
 
     while true; do
-        read -rsp "Database password (leave empty to auto-generate): " MYSQL_PASSWORD
-        echo ""
-        [ -z "$MYSQL_PASSWORD" ] && {
+        read -rsp "Database password (empty = auto-generate): " MYSQL_PASSWORD
+        echo
+        if [ -z "$MYSQL_PASSWORD" ]; then
             MYSQL_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/' | head -c20)"
             break
-        }
+        fi
         read -rsp "Confirm password: " CONFIRM
-        echo ""
+        echo
         [ "$MYSQL_PASSWORD" = "$CONFIRM" ] && break
         colorized_echo red "❌ Passwords do not match"
     done
@@ -103,6 +102,27 @@ ask_database_info() {
     MYSQL_ROOT_PASSWORD="$(openssl rand -base64 32 | tr -d '=+/' | head -c25)"
 }
 
+# ========== Admin ==========
+ask_admin_info() {
+    colorized_echo cyan "👤 Admin user configuration"
+
+    while true; do
+        read -rp "Admin username: " ADMIN_USERNAME
+        [ -n "$ADMIN_USERNAME" ] && break
+        colorized_echo red "❌ Username required"
+    done
+
+    while true; do
+        read -rsp "Admin password: " ADMIN_PASSWORD
+        echo
+        read -rsp "Confirm admin password: " ADMIN_CONFIRM
+        echo
+        [ "$ADMIN_PASSWORD" = "$ADMIN_CONFIRM" ] && break
+        colorized_echo red "❌ Passwords do not match"
+    done
+}
+
+# ========== ENV ==========
 generate_env_file() {
 cat > "$ENV_FILE" <<EOF
 MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
@@ -117,6 +137,7 @@ EOF
 chmod 600 "$ENV_FILE"
 }
 
+# ========== Compose ==========
 generate_docker_compose() {
 cat > "$COMPOSE_FILE" <<'EOF'
 services:
@@ -140,10 +161,10 @@ services:
     container_name: boleylapanel-backend
     restart: unless-stopped
     network_mode: host
+    env_file: .env
     depends_on:
       mysql:
         condition: service_healthy
-    env_file: .env
     volumes:
       - ./xray/output_configs:/app/xray/output_configs
       - ./logs:/app/logs
@@ -154,35 +175,14 @@ volumes:
 EOF
 }
 
-install_management_script() {
-cat > /usr/local/bin/boleyla <<'EOF'
-#!/usr/bin/env bash
-set -e
-APP_DIR="/opt/boleylapanel"
-COMPOSE_FILE="$APP_DIR/docker-compose.yml"
-
-detect_compose() {
-    docker compose version &>/dev/null && COMPOSE="docker compose" || COMPOSE="docker-compose"
-}
-
-detect_compose
-cd "$APP_DIR" || exit 1
-
-case "$1" in
-  up|start)   $COMPOSE up -d ;;
-  down|stop) $COMPOSE down ;;
-  restart)   $COMPOSE restart ;;
-  status)    $COMPOSE ps ;;
-  logs) shift; $COMPOSE logs -f "$@";;
-  update)    $COMPOSE pull && $COMPOSE up -d --force-recreate --remove-orphans ;;
-  uninstall) bash install.sh uninstall ;;
-  *) echo "Usage: boleyla up|down|restart|status|logs|update|uninstall" ;;
-esac
-EOF
-chmod +x /usr/local/bin/boleyla
+# ========== Services ==========
+start_services() {
+    $COMPOSE pull
+    $COMPOSE up -d
 }
 
 wait_for_mysql() {
+    colorized_echo yellow "⏳ Waiting for MySQL..."
     for i in {1..30}; do
         docker exec boleylapanel-mysql mysqladmin ping -h127.0.0.1 \
           -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" &>/dev/null && return
@@ -192,20 +192,56 @@ wait_for_mysql() {
     exit 1
 }
 
-run_migrations() {
-    docker exec boleylapanel-backend python -m app.scripts.init_db
+# ========== Migrations ==========
+run_db_migrations() {
+    colorized_echo blue "📦 makemigrations"
+    docker exec boleylapanel-backend \
+        python -m app.scripts.manage makemigrations
+
+    colorized_echo blue "🗄 migrate"
+    docker exec boleylapanel-backend \
+        python -m app.scripts.manage migrate
 }
 
-start_services() {
-    $COMPOSE pull
-    $COMPOSE up -d
+create_admin_user() {
+    colorized_echo blue "👤 Creating admin user"
+    docker exec boleylapanel-backend \
+        python -m app.scripts.manage create_admin \
+        --username "$ADMIN_USERNAME" \
+        --password "$ADMIN_PASSWORD"
 }
 
+# ========== CLI ==========
+install_management_script() {
+cat > /usr/local/bin/boleyla <<'EOF'
+#!/usr/bin/env bash
+set -e
+APP_DIR="/opt/boleylapanel"
+COMPOSE_FILE="$APP_DIR/docker-compose.yml"
+
+docker compose version &>/dev/null && COMPOSE="docker compose" || COMPOSE="docker-compose"
+cd "$APP_DIR" || exit 1
+
+case "$1" in
+  up|start)   $COMPOSE up -d ;;
+  down|stop) $COMPOSE down ;;
+  restart)   $COMPOSE restart ;;
+  status)    $COMPOSE ps ;;
+  logs) shift; $COMPOSE logs -f "$@" ;;
+  update)    $COMPOSE pull && $COMPOSE up -d --force-recreate ;;
+  uninstall) bash install.sh uninstall ;;
+  *) echo "Usage: boleyla up|down|restart|status|logs|update|uninstall" ;;
+esac
+EOF
+chmod +x /usr/local/bin/boleyla
+}
+
+# ========== Commands ==========
 install_command() {
     check_running_as_root
 
     if [ -d "$APP_DIR" ]; then
-        colorized_echo yellow "⚠️ Existing installation found"
+        colorized_echo yellow "⚠️ Existing installation detected"
         read -rp "Overwrite? (yes/no): " c
         [ "$c" = "yes" ] || exit 1
     fi
@@ -214,16 +250,22 @@ install_command() {
     install_docker
     detect_compose
     create_directories
+
     ask_database_info
+    ask_admin_info
+
     generate_env_file
     generate_docker_compose
     install_management_script
+
     start_services
     wait_for_mysql
-    run_migrations
+
+    run_db_migrations
+    create_admin_user
 
     colorized_echo green "✅ BoleylaPanel installed successfully"
-    echo "Use: boleyla up | boleyla status | boleyla logs"
+    echo "Admin: $ADMIN_USERNAME"
 }
 
 uninstall_command() {
@@ -232,9 +274,10 @@ uninstall_command() {
     $COMPOSE down -v
     rm -rf "$APP_DIR" "$DATA_DIR"
     rm -f /usr/local/bin/boleyla
-    colorized_echo green "✅ Uninstalled"
+    colorized_echo green "✅ Uninstalled successfully"
 }
 
+# ========== Entry ==========
 case "$1" in
   install) install_command ;;
   uninstall) uninstall_command ;;
