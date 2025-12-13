@@ -199,15 +199,20 @@ wait_for_mysql() {
 
 
 # ========== Migrations ==========
+#run_db_migrations() {
+#    colorized_echo blue "📦 makemigrations"
+#    docker exec boleylapanel-backend \
+#        python -m app.scripts.manage makemigrations
+#
+#    colorized_echo blue "🗄 migrate"
+#    docker exec boleylapanel-backend \
+#        python -m app.scripts.manage migrate
+#}
 run_db_migrations() {
-    colorized_echo blue "📦 makemigrations"
-    docker exec boleylapanel-backend \
-        python -m app.scripts.manage makemigrations
-
-    colorized_echo blue "🗄 migrate"
-    docker exec boleylapanel-backend \
-        python -m app.scripts.manage migrate
+  echo "📦 Initializing database"
+  "${COMPOSE[@]}" exec backend python -m scripts.init_db
 }
+
 
 create_admin_user() {
     colorized_echo blue "👤 Creating admin user"
