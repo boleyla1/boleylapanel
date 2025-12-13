@@ -1,37 +1,44 @@
+version: '3.8'
+
 services:
   mysql:
     image: mysql:8.0
     container_name: boleylapanel-mysql
     restart: unless-stopped
-    network_mode: host
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_DATABASE: boleyla
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     volumes:
       - mysql_data:/var/lib/mysql
-    command: >
-      uvicorn app.main:app
-      --host 127.0.0.1
-      --port 8000
-      --log-level info
+    networks:
+      - boleylapanel_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   backend:
     image: boleyla1/boleylapanel-backend:latest
     container_name: boleylapanel-backend
     restart: unless-stopped
-    network_mode: host
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
     environment:
-      DATABASE_URL: mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@127.0.0.1:3306/${MYSQL_DATABASE}
-      SECRET_KEY: ${SECRET_KEY}
-      ALGORITHM: HS256
-      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      DATABASE_URL: mysql+pymysql://admin:${DB_PASSWORD}@boleylapanel-mysql:3306/boleyla
     volumes:
-      - ./xray/output_configs:/app/xray/output_configs
-      - ./logs:/app/logs
+      - ./frontend:/app/frontend:ro
+    networks:
+      - boleylapanel_network
+    ports:
+      - "8000:8000"
 
 volumes:
   mysql_data:
+
+networks:
+  boleylapanel_network:
+    driver: bridge

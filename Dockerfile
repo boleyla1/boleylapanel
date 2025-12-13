@@ -12,7 +12,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # کپی بک‌اند
 COPY backend/app ./app
 
-# کپی فرانت‌اند
+# کپی اسکریپت‌ها
+COPY backend/scripts ./scripts
+
+# کپی فرانت‌اند (اگه داری)
 COPY frontend ./frontend
 
 EXPOSE 8000
