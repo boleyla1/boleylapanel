@@ -215,11 +215,10 @@ run_db_migrations() {
 
 
 create_admin_user() {
-    colorized_echo blue "👤 Creating admin user"
-    docker exec boleylapanel-backend \
-        python -m app.scripts.manage create_admin \
-        --username "$ADMIN_USERNAME" \
-        --password "$ADMIN_PASSWORD"
+    colorized_echo blue "🔧 Initializing database with admin user..."
+    docker exec \
+        --env-file "$ENV_FILE" \
+        boleylapanel-backend python /app/scripts/init_db.py
 }
 
 # ========== CLI ==========
