@@ -5,12 +5,15 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-
-COPY requirements.txt .
+# نصب وابستگی‌ها
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# کپی بک‌اند
+COPY backend/app ./app
 
-COPY . .
+# کپی فرانت‌اند
+COPY frontend ./frontend
 
 EXPOSE 8000
 
