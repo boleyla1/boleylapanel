@@ -216,10 +216,23 @@ run_db_migrations() {
 
 create_admin_user() {
     colorized_echo blue "🔧 Initializing database with admin user..."
-    docker exec \
-        --env-file "$ENV_FILE" \
-        boleylapanel-backend python /app/scripts/init_db.py
+
+    # Read all variables from .env and pass them
+    local env_vars=""
+    while IFS='=' read -r key value; do
+        # Skip comments and empty lines
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$key" ]] && continue
+
+        # Remove quotes from value
+        value=$(echo "$value" | sed 's/^"\(.*\)"$/\1/' | sed "s/^'\(.*\)'$/\1/")
+
+        env_vars="$env_vars -e $key=$value"
+    done < "$ENV_FILE"
+
+    docker exec $env_vars boleylapanel-backend python /app/scripts/init_db.py
 }
+
 
 # ========== CLI ==========
 install_management_script() {
