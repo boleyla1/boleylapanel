@@ -1,308 +1,164 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -e
 
-# ========== Colors ==========
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-# ========== Variables ==========
-INSTALL_DIR="/opt"
-APP_NAME="boleylapanel"
-APP_DIR="$INSTALL_DIR/$APP_NAME"
-DATA_DIR="/var/lib/$APP_NAME"
-COMPOSE_FILE="$APP_DIR/docker-compose.yml"
+APP_DIR="/opt/boleylapanel"
 ENV_FILE="$APP_DIR/.env"
 
-# ========== Helpers ==========
-colorized_echo() {
-    local c=$1
-    local t=$2
-    case $c in
-        red) printf "${RED}${t}${NC}\n" ;;
-        green) printf "${GREEN}${t}${NC}\n" ;;
-        yellow) printf "${YELLOW}${t}${NC}\n" ;;
-        blue) printf "${BLUE}${t}${NC}\n" ;;
-        cyan) printf "${CYAN}${t}${NC}\n" ;;
-        *) echo "$t" ;;
-    esac
-}
+echo "🔧 BoleylPanel Admin User Fix Script"
+echo "===================================="
 
-check_running_as_root() {
-    [ "$(id -u)" = "0" ] || {
-        colorized_echo red "❌ This script must be run as root"
-        exit 1
-    }
-}
-
-detect_os() {
-    [ -f /etc/os-release ] || {
-        colorized_echo red "❌ Unsupported OS"
-        exit 1
-    }
-    . /etc/os-release
-    colorized_echo green "✅ OS detected: $ID $VERSION_ID"
-}
-
-install_docker() {
-    if command -v docker &>/dev/null; then
-        colorized_echo green "✅ Docker already installed"
-        return
-    fi
-    colorized_echo blue "📦 Installing Docker..."
-    curl -fsSL https://get.docker.com | sh
-    systemctl enable docker
-    systemctl start docker
-}
-
-detect_compose() {
-    if docker compose version &>/dev/null; then
-        COMPOSE=(docker compose)
-    elif docker-compose version &>/dev/null; then
-        COMPOSE=(docker-compose)
-    else
-        colorized_echo red "❌ Docker Compose not found"
-        exit 1
-    fi
-}
-
-
-create_directories() {
-    mkdir -p "$APP_DIR" "$DATA_DIR" \
-             "$APP_DIR/xray/output_configs" \
-             "$APP_DIR/logs" \
-             "$APP_DIR/backup"
-}
-
-# ========== Database ==========
-ask_database_info() {
-    colorized_echo cyan "🗄 Database configuration"
-
-    read -rp "Database name [boleylapanel]: " MYSQL_DATABASE
-    MYSQL_DATABASE=${MYSQL_DATABASE:-boleylapanel}
-
-    read -rp "Database user [boleyla]: " MYSQL_USER
-    MYSQL_USER=${MYSQL_USER:-boleyla}
-
-    while true; do
-        read -rsp "Database password (empty = auto-generate): " MYSQL_PASSWORD
-        echo
-        if [ -z "$MYSQL_PASSWORD" ]; then
-            MYSQL_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/' | head -c20)"
-            break
-        fi
-        read -rsp "Confirm password: " CONFIRM
-        echo
-        [ "$MYSQL_PASSWORD" = "$CONFIRM" ] && break
-        colorized_echo red "❌ Passwords do not match"
-    done
-
-    MYSQL_ROOT_PASSWORD="$(openssl rand -base64 32 | tr -d '=+/' | head -c25)"
-}
-
-# ========== Admin ==========
-ask_admin_info() {
-    colorized_echo cyan "👤 Admin user configuration"
-
-    while true; do
-        read -rp "Admin username: " ADMIN_USERNAME
-        [ -n "$ADMIN_USERNAME" ] && break
-        colorized_echo red "❌ Username required"
-    done
-
-    while true; do
-        read -rsp "Admin password: " ADMIN_PASSWORD
-        echo
-        read -rsp "Confirm admin password: " ADMIN_CONFIRM
-        echo
-        [ "$ADMIN_PASSWORD" = "$ADMIN_CONFIRM" ] && break
-        colorized_echo red "❌ Passwords do not match"
-    done
-}
-
-# ========== ENV ==========
-generate_env_file() {
-cat > "$ENV_FILE" <<EOF
-MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
-MYSQL_DATABASE=$MYSQL_DATABASE
-MYSQL_USER=$MYSQL_USER
-MYSQL_PASSWORD=$MYSQL_PASSWORD
-
-SECRET_KEY=$(openssl rand -hex 32)
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-EOF
-chmod 600 "$ENV_FILE"
-}
-
-# ========== Compose ==========
-generate_docker_compose() {
-cat > "$COMPOSE_FILE" <<'EOF'
-services:
-  mysql:
-    image: mysql:8.0
-    container_name: boleylapanel-mysql
-    restart: unless-stopped
-    network_mode: host
-    env_file: .env
-    volumes:
-      - mysql_data:/var/lib/mysql
-    command: --default-authentication-plugin=mysql_native_password --bind-address=127.0.0.1
-    healthcheck:
-      test: ["CMD","mysqladmin","ping","-h","127.0.0.1","-u","${MYSQL_USER}","--password=${MYSQL_PASSWORD}"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-
-  backend:
-    image: boleyla1/boleylapanel-backend:latest
-    container_name: boleylapanel-backend
-    restart: unless-stopped
-    network_mode: host
-    env_file: .env
-    depends_on:
-      mysql:
-        condition: service_healthy
-    volumes:
-      - ./xray/output_configs:/app/xray/output_configs
-      - ./logs:/app/logs
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-
-volumes:
-  mysql_data:
-EOF
-}
-
-# ========== Services ==========
-start_services() {
-    cd "$APP_DIR" || exit 1
-    "${COMPOSE[@]}" pull
-    "${COMPOSE[@]}" up -d
-}
-
-
-
-wait_for_mysql() {
-    cd "$APP_DIR" || exit 1
-    colorized_echo yellow "⏳ Waiting for MySQL..."
-    for i in {1..30}; do
-        docker exec boleylapanel-mysql mysqladmin ping -h127.0.0.1 \
-          -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" &>/dev/null && return
-        sleep 2
-    done
-    colorized_echo red "❌ MySQL not ready"
+# چک کردن وجود .env
+if [ ! -f "$ENV_FILE" ]; then
+    echo "❌ .env file not found at $ENV_FILE"
     exit 1
-}
+fi
 
+# بارگذاری متغیرها
+echo "📥 Loading environment variables..."
+source "$ENV_FILE"
 
-# ========== Migrations ==========
-#run_db_migrations() {
-#    colorized_echo blue "📦 makemigrations"
-#    docker exec boleylapanel-backend \
-#        python -m app.scripts.manage makemigrations
-#
-#    colorized_echo blue "🗄 migrate"
-#    docker exec boleylapanel-backend \
-#        python -m app.scripts.manage migrate
-#}
-run_db_migrations() {
-  echo "📦 Initializing database"
-  "${COMPOSE[@]}" exec backend python -m scripts.init_db
-}
+# چک کردن متغیرهای ضروری
+if [ -z "$ADMIN_USERNAME" ] || [ -z "$ADMIN_PASSWORD" ] || [ -z "$DATABASE_URL" ]; then
+    echo "❌ Missing required variables in .env file"
+    echo "Required: ADMIN_USERNAME, ADMIN_PASSWORD, DATABASE_URL"
+    exit 1
+fi
 
+echo "✅ Environment variables loaded"
+echo "   Username: $ADMIN_USERNAME"
+echo "   Database: $(echo $DATABASE_URL | sed 's/:[^:]*@/:***@/')"
 
-create_admin_user() {
-    colorized_echo blue "🔧 Initializing database with admin user..."
+# تشخیص مسیر اسکریپت init_db
+echo ""
+echo "🔍 Detecting init_db.py location..."
 
-    # Read all variables from .env and pass them
-    local env_vars=""
-    while IFS='=' read -r key value; do
-        # Skip comments and empty lines
-        [[ "$key" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "$key" ]] && continue
+if docker exec boleylapanel-backend test -f /app/scripts/init_db.py 2>/dev/null; then
+    SCRIPT_PATH="/app/scripts/init_db.py"
+    echo "✅ Found at: $SCRIPT_PATH"
+elif docker exec boleylapanel-backend test -f /app/app/scripts/init_db.py 2>/dev/null; then
+    SCRIPT_PATH="/app/app/scripts/init_db.py"
+    echo "✅ Found at: $SCRIPT_PATH"
+else
+    echo "⚠️ init_db.py not found, will create admin directly via Python"
+    SCRIPT_PATH="direct"
+fi
 
-        # Remove quotes from value
-        value=$(echo "$value" | sed 's/^"\(.*\)"$/\1/' | sed "s/^'\(.*\)'$/\1/")
+echo ""
+echo "🚀 Creating admin user..."
 
-        env_vars="$env_vars -e $key=$value"
-    done < "$ENV_FILE"
+if [ "$SCRIPT_PATH" = "direct" ]; then
+    # روش ۱: ساخت مستقیم admin بدون استفاده از init_db.py
+    docker exec -i boleylapanel-backend python3 <<PYEOF
+import os
+import sys
 
-    docker exec $env_vars boleylapanel-backend python /app/scripts/init_db.py
-}
+# تنظیم متغیرهای محیطی
+os.environ['DATABASE_URL'] = '$DATABASE_URL'
+os.environ['ADMIN_USERNAME'] = '$ADMIN_USERNAME'
+os.environ['ADMIN_PASSWORD'] = '$ADMIN_PASSWORD'
+os.environ['ADMIN_EMAIL'] = '${ADMIN_EMAIL:-admin@boleyla.com}'
 
+# اضافه کردن مسیر app به sys.path
+sys.path.insert(0, '/app')
 
-# ========== CLI ==========
-install_management_script() {
-cat > /usr/local/bin/boleyla <<'EOF'
-#!/usr/bin/env bash
-set -e
-APP_DIR="/opt/boleylapanel"
-COMPOSE_FILE="$APP_DIR/docker-compose.yml"
+try:
+    from app.db.database import engine, SessionLocal
+    from app.models.user import User
+    from app.core.security import get_password_hash
+    from sqlalchemy import inspect
 
-docker compose version &>/dev/null && COMPOSE="docker compose" || COMPOSE="docker-compose"
-cd "$APP_DIR" || exit 1
+    print('✅ Imports successful')
 
-case "$1" in
-  up|start)   $COMPOSE up -d ;;
-  down|stop) $COMPOSE down ;;
-  restart)   $COMPOSE restart ;;
-  status)    $COMPOSE ps ;;
-  logs) shift; $COMPOSE logs -f "$@" ;;
-  update)    $COMPOSE pull && $COMPOSE up -d --force-recreate ;;
-  uninstall) bash install.sh uninstall ;;
-  *) echo "Usage: boleyla up|down|restart|status|logs|update|uninstall" ;;
-esac
-EOF
-chmod +x /usr/local/bin/boleyla
-}
+    # بررسی اتصال به دیتابیس
+    inspector = inspect(engine)
+    tables = inspector.get_table_names()
+    print(f'📊 Available tables: {tables}')
 
-# ========== Commands ==========
-install_command() {
-    check_running_as_root
+    # ساخت session
+    db = SessionLocal()
 
-    if [ -d "$APP_DIR" ]; then
-        colorized_echo yellow "⚠️ Existing installation detected"
-        read -rp "Overwrite? (yes/no): " c
-        [ "$c" = "yes" ] || exit 1
-    fi
+    try:
+        # چک کردن admin موجود
+        existing_admin = db.query(User).filter(User.username == os.environ['ADMIN_USERNAME']).first()
 
-    detect_os
-    install_docker
-    detect_compose
-    create_directories
+        if existing_admin:
+            print(f'⚠️  Admin user "{os.environ["ADMIN_USERNAME"]}" already exists')
+            print(f'   Role: {existing_admin.role}')
+            print(f'   Active: {existing_admin.is_active}')
+        else:
+            # ساخت admin جدید
+            admin_user = User(
+                username=os.environ['ADMIN_USERNAME'],
+                hashed_password=get_password_hash(os.environ['ADMIN_PASSWORD']),
+                email=os.environ.get('ADMIN_EMAIL', 'admin@boleyla.com'),
+                role='admin',
+                is_active=True
+            )
+            db.add(admin_user)
+            db.commit()
+            db.refresh(admin_user)
+            print(f'✅ Admin user "{admin_user.username}" created successfully!')
+            print(f'   ID: {admin_user.id}')
+            print(f'   Role: {admin_user.role}')
+    except Exception as e:
+        db.rollback()
+        print(f'❌ Database operation error: {str(e)}')
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+    finally:
+        db.close()
 
-    ask_database_info
-    ask_admin_info
+except ImportError as e:
+    print(f'❌ Import error: {str(e)}')
+    print('📝 Checking app structure...')
+    import os
+    for root, dirs, files in os.walk('/app'):
+        level = root.replace('/app', '').count(os.sep)
+        indent = ' ' * 2 * level
+        print(f'{indent}{os.path.basename(root)}/')
+        subindent = ' ' * 2 * (level + 1)
+        for file in files[:5]:
+            print(f'{subindent}{file}')
+        if len(files) > 5:
+            print(f'{subindent}... and {len(files)-5} more files')
+    sys.exit(1)
+except Exception as e:
+    print(f'❌ Unexpected error: {str(e)}')
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+PYEOF
 
-    generate_env_file
-    generate_docker_compose
-    install_management_script
+else
+    # روش ۲: استفاده از init_db.py موجود
+    docker exec -i boleylapanel-backend bash -c "
+export ADMIN_USERNAME='$ADMIN_USERNAME'
+export ADMIN_PASSWORD='$ADMIN_PASSWORD'
+export ADMIN_EMAIL='${ADMIN_EMAIL:-admin@boleyla.com}'
+export DATABASE_URL='$DATABASE_URL'
+python $SCRIPT_PATH
+"
+fi
 
-    start_services
-    wait_for_mysql
+RESULT=$?
 
-    run_db_migrations
-    create_admin_user
-
-    colorized_echo green "✅ BoleylaPanel installed successfully"
-    echo "Admin: $ADMIN_USERNAME"
-}
-
-uninstall_command() {
-    detect_compose
-    cd "$APP_DIR" || exit 0
-    $COMPOSE down -v
-    rm -rf "$APP_DIR" "$DATA_DIR"
-    rm -f /usr/local/bin/boleyla
-    colorized_echo green "✅ Uninstalled successfully"
-}
-
-# ========== Entry ==========
-case "$1" in
-  install) install_command ;;
-  uninstall) uninstall_command ;;
-  *) echo "Usage: $0 install | uninstall" ;;
-esac
+echo ""
+echo "===================================="
+if [ $RESULT -eq 0 ]; then
+    echo "✅ Script completed successfully!"
+    echo ""
+    echo "🎯 Next steps:"
+    echo "   1. Access panel: http://YOUR_SERVER_IP:8000"
+    echo "   2. Login with:"
+    echo "      Username: $ADMIN_USERNAME"
+    echo "      Password: [your password]"
+else
+    echo "❌ Script failed with exit code: $RESULT"
+    echo ""
+    echo "🔍 Troubleshooting:"
+    echo "   1. Check container logs: docker logs boleylapanel-backend"
+    echo "   2. Check MySQL: docker logs boleylapanel-mysql"
+    echo "   3. Verify .env file: cat $ENV_FILE"
+fi
+echo "===================================="
