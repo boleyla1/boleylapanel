@@ -47,41 +47,53 @@ detect_os() {
 
 detect_and_update_package_manager() {
     colorized_echo blue "Updating package manager"
-    if [[ "$OS" == "Ubuntu"* ]] || [[ "$OS" == "Debian"* ]]; then
-        PKG_MANAGER="apt-get"
-        $PKG_MANAGER update
-    elif [[ "$OS" == "CentOS"* ]] || [[ "$OS" == "AlmaLinux"* ]]; then
-        PKG_MANAGER="yum"
-        $PKG_MANAGER update -y
-        $PKG_MANAGER install -y epel-release
-    elif [ "$OS" == "Fedora"* ]; then
-        PKG_MANAGER="dnf"
-        $PKG_MANAGER update
-    elif [ "$OS" == "Arch" ]; then
-        PKG_MANAGER="pacman"
-        $PKG_MANAGER -Sy
-    else
-        colorized_echo red "Unsupported operating system"
-        exit 1
-    fi
+    case "$OS" in
+        Ubuntu*|Debian*)
+            PKG_MANAGER="apt-get"
+            $PKG_MANAGER update
+            ;;
+        CentOS*|AlmaLinux*)
+            PKG_MANAGER="yum"
+            $PKG_MANAGER update -y
+            $PKG_MANAGER install -y epel-release
+            ;;
+        Fedora*)
+            PKG_MANAGER="dnf"
+            $PKG_MANAGER update
+            ;;
+        Arch)
+            PKG_MANAGER="pacman"
+            $PKG_MANAGER -Sy
+            ;;
+        *)
+            colorized_echo red "Unsupported operating system"
+            exit 1
+            ;;
+    esac
 }
 
 install_package() {
-    if [ -z $PKG_MANAGER ]; then
+    if [ -z "$PKG_MANAGER" ]; then
         detect_and_update_package_manager
     fi
     PACKAGE=$1
     colorized_echo blue "Installing $PACKAGE"
-    if [[ "$OS" == "Ubuntu"* ]] || [[ "$OS" == "Debian"* ]]; then
-        $PKG_MANAGER -y install "$PACKAGE"
-    elif [[ "$OS" == "CentOS"* ]] || [[ "$OS" == "AlmaLinux"* ]]; then
-        $PKG_MANAGER install -y "$PACKAGE"
-    elif [ "$OS" == "Fedora"* ]; then
-        $PKG_MANAGER install -y "$PACKAGE"
-    elif [ "$OS" == "Arch" ]; then
-        $PKG_MANAGER -S --noconfirm "$PACKAGE"
-    fi
+    case "$OS" in
+        Ubuntu*|Debian*)
+            $PKG_MANAGER -y install "$PACKAGE"
+            ;;
+        CentOS*|AlmaLinux*)
+            $PKG_MANAGER install -y "$PACKAGE"
+            ;;
+        Fedora*)
+            $PKG_MANAGER install -y "$PACKAGE"
+            ;;
+        Arch)
+            $PKG_MANAGER -S --noconfirm "$PACKAGE"
+            ;;
+    esac
 }
+
 
 install_docker() {
     colorized_echo blue "Installing Docker"
@@ -258,6 +270,152 @@ except Exception as e:
 PYTHON_SCRIPT
 }
 
+# ═══════════════════════════════════════════════════
+# Migration Commands
+# ═══════════════════════════════════════════════════
+
+makemigration_command() {
+    if ! is_boleylapanel_installed; then
+        colorized_echo red "BoleylاPanel is not installed!"
+        exit 1
+    fi
+
+    detect_compose
+
+    if ! is_boleylapanel_up; then
+        colorized_echo yellow "Starting containers for migration..."
+        up_boleylapanel
+        sleep 5
+    fi
+
+    colorized_echo blue "Creating new migration..."
+
+    # Get migration message
+    if [ -n "$2" ]; then
+        MIGRATION_MESSAGE="$2"
+    else
+        read -p "Enter migration message: " MIGRATION_MESSAGE
+        if [ -z "$MIGRATION_MESSAGE" ]; then
+            MIGRATION_MESSAGE="auto_generated_migration"
+        fi
+    fi
+
+    colorized_echo yellow "Generating migration: $MIGRATION_MESSAGE"
+
+    $COMPOSE -f $COMPOSE_FILE exec backend alembic revision --autogenerate -m "$MIGRATION_MESSAGE"
+
+    if [ $? -eq 0 ]; then
+        colorized_echo green "✅ Migration created successfully!"
+        colorized_echo cyan "Migration files location: backend/alembic/versions/"
+        colorized_echo yellow "Don't forget to run 'boleylapanel migrate' to apply changes"
+    else
+        colorized_echo red "❌ Failed to create migration"
+        exit 1
+    fi
+}
+
+migrate_command() {
+    if ! is_boleylapanel_installed; then
+        colorized_echo red "BoleylاPanel is not installed!"
+        exit 1
+    fi
+
+    detect_compose
+
+    if ! is_boleylapanel_up; then
+        colorized_echo yellow "Starting containers for migration..."
+        up_boleylapanel
+        sleep 5
+    fi
+
+    colorized_echo blue "Applying database migrations..."
+
+    # Show current version
+    colorized_echo cyan "Current migration version:"
+    $COMPOSE -f $COMPOSE_FILE exec backend alembic current
+
+    # Apply migrations
+    $COMPOSE -f $COMPOSE_FILE exec backend alembic upgrade head
+
+    if [ $? -eq 0 ]; then
+        colorized_echo green "✅ Migrations applied successfully!"
+
+        # Show new version
+        colorized_echo cyan "New migration version:"
+        $COMPOSE -f $COMPOSE_FILE exec backend alembic current
+    else
+        colorized_echo red "❌ Failed to apply migrations"
+        exit 1
+    fi
+}
+
+migration_status_command() {
+    if ! is_boleylapanel_installed; then
+        colorized_echo red "BoleylاPanel is not installed!"
+        exit 1
+    fi
+
+    detect_compose
+
+    if ! is_boleylapanel_up; then
+        colorized_echo red "Containers are not running. Start them first with: boleylapanel up"
+        exit 1
+    fi
+
+    colorized_echo blue "Migration Status:"
+    colorized_echo cyan "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # Current version
+    colorized_echo yellow "Current version:"
+    $COMPOSE -f $COMPOSE_FILE exec backend alembic current
+
+    echo
+    colorized_echo yellow "Migration history:"
+    $COMPOSE -f $COMPOSE_FILE exec backend alembic history
+}
+
+migration_downgrade_command() {
+    if ! is_boleylapanel_installed; then
+        colorized_echo red "BoleylاPanel is not installed!"
+        exit 1
+    fi
+
+    detect_compose
+
+    if ! is_boleylapanel_up; then
+        colorized_echo red "Containers are not running. Start them first with: boleylapanel up"
+        exit 1
+    fi
+
+    # Get steps to downgrade
+    STEPS=${2:-1}
+
+    colorized_echo yellow "⚠️  Warning: This will rollback $STEPS migration(s)"
+    read -p "Are you sure? (y/n) " -n 1 -r
+    echo
+
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        colorized_echo red "Downgrade cancelled"
+        exit 0
+    fi
+
+    colorized_echo blue "Rolling back $STEPS migration(s)..."
+    $COMPOSE -f $COMPOSE_FILE exec backend alembic downgrade -$STEPS
+
+    if [ $? -eq 0 ]; then
+        colorized_echo green "✅ Downgrade completed"
+        colorized_echo cyan "Current version:"
+        $COMPOSE -f $COMPOSE_FILE exec backend alembic current
+    else
+        colorized_echo red "❌ Downgrade failed"
+        exit 1
+    fi
+}
+
+# ═══════════════════════════════════════════════════
+# Original Commands
+# ═══════════════════════════════════════════════════
+
 install_command() {
     check_running_as_root
 
@@ -298,6 +456,10 @@ install_command() {
     colorized_echo yellow "Waiting for MySQL to be ready (20 seconds)..."
     sleep 20
 
+    # Run migrations during install
+    colorized_echo blue "Running initial migrations..."
+    $COMPOSE -f $COMPOSE_FILE exec backend alembic upgrade head
+
     create_admin_user
 
     install_boleylapanel_script
@@ -319,11 +481,14 @@ show_success_message() {
     colorized_echo cyan "Admin Password: $ADMIN_PASSWORD"
     echo
     colorized_echo magenta "Useful commands:"
-    colorized_echo blue "  boleylapanel up       - Start services"
-    colorized_echo blue "  boleylapanel down     - Stop services"
-    colorized_echo blue "  boleylapanel restart  - Restart services"
-    colorized_echo blue "  boleylapanel logs     - View logs"
-    colorized_echo blue "  boleylapanel status   - Check status"
+    colorized_echo blue "  boleylapanel up              - Start services"
+    colorized_echo blue "  boleylapanel down            - Stop services"
+    colorized_echo blue "  boleylapanel restart         - Restart services"
+    colorized_echo blue "  boleylapanel logs            - View logs"
+    colorized_echo blue "  boleylapanel status          - Check status"
+    colorized_echo blue "  boleylapanel makemigration   - Create new migration"
+    colorized_echo blue "  boleylapanel migrate         - Apply migrations"
+    colorized_echo blue "  boleylapanel migration-status - Check migration status"
     colorized_echo green "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
@@ -430,20 +595,36 @@ uninstall_command() {
 }
 
 usage() {
-    colorized_echo cyan "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    colorized_echo magenta "   BoleylاPanel Management"
-    colorized_echo cyan "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    colorized_echo cyan "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    colorized_echo magenta "       BoleylاPanel Management"
+    colorized_echo cyan "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
-    colorized_echo yellow "Commands:"
-    echo "  install    - Install BoleylاPanel"
-    echo "  up         - Start services"
-    echo "  down       - Stop services"
-    echo "  restart    - Restart services"
-    echo "  logs       - View logs"
-    echo "  status     - Check status"
-    echo "  uninstall  - Remove BoleylاPanel"
+    colorized_echo yellow "Basic Commands:"
+    echo "  install             - Install BoleylاPanel"
+    echo "  up                  - Start services"
+    echo "  down                - Stop services"
+    echo "  restart             - Restart services"
+    echo "  logs                - View logs"
+    echo "  status              - Check status"
+    echo "  uninstall           - Remove BoleylاPanel"
+    echo
+    colorized_echo yellow "Database Migration Commands:"
+    echo "  makemigration [msg] - Create new migration"
+    echo "  migrate             - Apply all pending migrations"
+    echo "  migration-status    - Show migration status"
+    echo "  migration-downgrade [steps] - Rollback migrations (default: 1)"
+    echo
+    colorized_echo cyan "Examples:"
+    echo "  boleylapanel makemigration \"add user table\""
+    echo "  boleylapanel migrate"
+    echo "  boleylapanel migration-status"
+    echo "  boleylapanel migration-downgrade 2"
     echo
 }
+
+# ═══════════════════════════════════════════════════
+# Main Router
+# ═══════════════════════════════════════════════════
 
 case "$1" in
     install)
@@ -463,6 +644,18 @@ case "$1" in
         ;;
     status)
         status_command
+        ;;
+    makemigration)
+        makemigration_command "$@"
+        ;;
+    migrate)
+        migrate_command
+        ;;
+    migration-status)
+        migration_status_command
+        ;;
+    migration-downgrade)
+        migration_downgrade_command "$@"
         ;;
     uninstall)
         uninstall_command

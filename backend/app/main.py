@@ -1,4 +1,6 @@
 from pathlib import Path
+import os
+import sys
 
 from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,16 +13,62 @@ from app.db.database import SessionLocal
 from app.models import User
 from app.config import settings
 
+# ===============================
+# Fix Windows Console Encoding
+# ===============================
+
+# Set UTF-8 encoding for Windows console
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 
 # ===============================
-# Path Configuration
+# Smart Path Configuration (Windows + Linux)
 # ===============================
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+def get_base_dir():
+    """
+    Automatically detect base directory for both Windows and Linux
+    """
+    current_file = Path(__file__).resolve()
 
+    # Try to find frontend directory by going up the tree
+    for parent_level in range(5):
+        potential_base = current_file.parents[parent_level]
+        frontend_dir = potential_base / "frontend"
+
+        if frontend_dir.exists() and (frontend_dir / "index.html").exists():
+            print(f"[OK] Found frontend at: {frontend_dir}")
+            return potential_base
+
+    # Fallback: check common locations
+    common_paths = [
+        Path("/opt/boleylapanel"),  # Linux VPS
+        Path.cwd().parent,  # Current working directory's parent
+        Path.cwd(),  # Current working directory
+    ]
+
+    for path in common_paths:
+        frontend_dir = path / "frontend"
+        if frontend_dir.exists() and (frontend_dir / "index.html").exists():
+            print(f"[OK] Found frontend at: {frontend_dir}")
+            return path
+
+    # Last resort: use current file's parent
+    print("[WARN] Frontend not found, using default path")
+    return current_file.parents[2]
+
+
+BASE_DIR = get_base_dir()
 FRONTEND_DIR = BASE_DIR / "frontend"
 STATIC_DIR = FRONTEND_DIR / "static"
-INDEX_FILE = FRONTEND_DIR / "index.html"
+
+print(f"[INFO] BASE_DIR: {BASE_DIR}")
+print(f"[INFO] FRONTEND_DIR: {FRONTEND_DIR}")
+print(f"[INFO] index.html exists: {(FRONTEND_DIR / 'index.html').exists()}")
 
 # ===============================
 # FastAPI App
@@ -30,10 +78,7 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     debug=settings.debug,
-    docs_url="/docs",
-    redoc_url="/redoc",
 )
-
 
 # ===============================
 # CORS
@@ -49,75 +94,22 @@ app.add_middleware(
 
 
 # ===============================
-# API Router
+# Database Dependency
+# ===============================
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# ===============================
+# API Routes
 # ===============================
 
 app.include_router(api_router, prefix="/api/v1")
-
-
-# ===============================
-# Static Files (Frontend)
-# ===============================
-@app.get("/{page}.html")
-def serve_html(page: str):
-    file_path = FRONTEND_DIR / f"{page}.html"
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="page not found")
-    return FileResponse(file_path)
-
-
-# root → index.html
-@app.get("/")
-async def root():
-    index = FRONTEND_DIR / "index.html"
-    if not index.exists():
-        raise HTTPException(status_code=500, detail="index.html missing")
-    return FileResponse(index)
-
-if STATIC_DIR.exists():
-    app.mount(
-        "/static",
-        StaticFiles(directory=STATIC_DIR),
-        name="static",
-    )
-else:
-    print("WARNING: frontend/static directory not found:", STATIC_DIR)
-
-
-# ===============================
-# SPA Fallback
-# ===============================
-
-@app.get("/{path:path}")
-async def spa_fallback(path: str):
-    """
-    Serve index.html for SPA routes
-    """
-    if path.startswith(("api", "docs", "redoc", "static")):
-        return JSONResponse(status_code=404, content={"detail": "Not Found"})
-
-    index_file = STATIC_DIR / "index.html"
-    if index_file.exists():
-        return FileResponse(index_file)
-
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Frontend not built or index.html missing"},
-    )
-
-
-# ===============================
-# Root & Health
-# ===============================
-
-@app.get("/")
-async def root():
-    return {
-        "app": settings.app_name,
-        "version": settings.app_version,
-        "environment": settings.app_env,
-        "status": "running",
-    }
 
 
 @app.get("/ping")
@@ -133,22 +125,6 @@ async def health_check():
         "environment": settings.app_env,
     }
 
-
-# ===============================
-# Database Dependency
-# ===============================
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-# ===============================
-# Example DB Route (Test)
-# ===============================
 
 @app.get("/api/users")
 def get_users(db: Session = Depends(get_db)):
@@ -166,15 +142,46 @@ def get_users(db: Session = Depends(get_db)):
 
 
 # ===============================
-# Entrypoint
+# Static Files
 # ===============================
 
-if __name__ == "__main__":
-    import uvicorn
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+else:
+    print(f"[WARN] Static directory not found: {STATIC_DIR}")
 
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=settings.debug,
-    )
+
+# ===============================
+# HTML Pages
+# ===============================
+
+@app.get("/{page}.html")
+async def serve_html(page: str):
+    file_path = FRONTEND_DIR / f"{page}.html"
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Page '{page}.html' not found")
+    return FileResponse(file_path)
+
+
+# ===============================
+# Root Route
+# ===============================
+
+@app.get("/")
+async def root():
+    index_path = FRONTEND_DIR / "index.html"
+
+    if not index_path.exists():
+        return JSONResponse(
+            status_code=500,
+            content={
+                "app": settings.app_name,
+                "version": settings.app_version,
+                "status": "running",
+                "error": "index.html not found",
+                "searched_path": str(index_path),
+                "base_dir": str(BASE_DIR),
+            }
+        )
+
+    return FileResponse(index_path)
