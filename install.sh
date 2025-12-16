@@ -1,34 +1,26 @@
 #!/usr/bin/env bash
 set -e
 
-# ========================================
-#  BolelaPanel Installation Script
-# ========================================
-
 INSTALL_DIR="/opt"
 APP_NAME="boleylapanel"
 APP_DIR="$INSTALL_DIR/$APP_NAME"
-DATA_DIR="/var/lib/$APP_NAME"
 COMPOSE_FILE="$APP_DIR/docker-compose.yml"
 ENV_FILE="$APP_DIR/.env"
 
-# Colors
 colorized_echo() {
     local color=$1
     local text=$2
-
     case $color in
-        "red")    printf "\e[91m${text}\e[0m\n";;
-        "green")  printf "\e[92m${text}\e[0m\n";;
+        "red") printf "\e[91m${text}\e[0m\n";;
+        "green") printf "\e[92m${text}\e[0m\n";;
         "yellow") printf "\e[93m${text}\e[0m\n";;
-        "blue")   printf "\e[94m${text}\e[0m\n";;
+        "blue") printf "\e[94m${text}\e[0m\n";;
         "magenta") printf "\e[95m${text}\e[0m\n";;
-        "cyan")   printf "\e[96m${text}\e[0m\n";;
-        *)        echo "${text}";;
+        "cyan") printf "\e[96m${text}\e[0m\n";;
+        *) echo "${text}";;
     esac
 }
 
-# Check root
 check_running_as_root() {
     if [ "$(id -u)" != "0" ]; then
         colorized_echo red "This script must be run as root."
@@ -36,36 +28,30 @@ check_running_as_root() {
     fi
 }
 
-# Detect OS
 detect_os() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         OS=$ID
-    elif [ -f /etc/lsb-release ]; then
-        OS=$(lsb_release -si | tr '[:upper:]' '[:lower:]')
     else
         colorized_echo red "Cannot detect OS"
         exit 1
     fi
 }
 
-# Install package based on OS
 install_package() {
     local package=$1
     colorized_echo blue "Installing $package..."
 
     case $OS in
         ubuntu|debian)
-            apt-get update -qq && apt-get install -y -qq "$package"
+            apt-get update -qq
+            apt-get install -y -qq $package
             ;;
         centos|rhel|almalinux)
-            yum install -y "$package"
+            yum install -y $package
             ;;
         fedora)
-            dnf install -y "$package"
-            ;;
-        arch|manjaro)
-            pacman -S --noconfirm "$package"
+            dnf install -y $package
             ;;
         *)
             colorized_echo red "Unsupported OS: $OS"
@@ -74,7 +60,6 @@ install_package() {
     esac
 }
 
-# Install Docker
 install_docker() {
     if command -v docker &> /dev/null; then
         colorized_echo green "Docker is already installed"
@@ -88,11 +73,10 @@ install_docker() {
     colorized_echo green "Docker installed successfully"
 }
 
-# Detect docker compose
 detect_compose() {
-    if docker compose version >/dev/null 2>&1; then
+    if docker compose version &>/dev/null; then
         COMPOSE='docker compose'
-    elif docker-compose version >/dev/null 2>&1; then
+    elif docker-compose version &>/dev/null; then
         COMPOSE='docker-compose'
     else
         colorized_echo red "Docker Compose not found"
@@ -100,308 +84,198 @@ detect_compose() {
     fi
 }
 
-# Generate random password
-generate_password() {
-    openssl rand -base64 32 | tr -d '/+=' | cut -c1-24
+generate_random_string() {
+    openssl rand -hex 16
 }
 
-# Create .env file
-generate_env_file() {
-    colorized_echo blue "Generating .env file..."
+create_env() {
+    colorized_echo blue "Creating .env file..."
 
-    local db_root_pass=$(generate_password)
-    local db_user_pass=$(generate_password)
-    local secret_key=$(generate_password)
-    local admin_user="admin"
-    local admin_pass="admin123"
-    local admin_email="admin@boleylapanel.local"
+    MYSQL_ROOT_PASSWORD=$(generate_random_string)
+    MYSQL_PASSWORD=$(generate_random_string)
+    SECRET_KEY=$(generate_random_string)
 
     cat > "$ENV_FILE" << EOF
-# App Configuration
-APP_NAME=BolelaPanel
-APP_VERSION=1.0.0
-DEBUG=false
-
 # Database Configuration
-DB_HOST=db
-DB_PORT=3306
-DB_NAME=boleylapanel_db
-DB_USER=boleylapanel_user
-DB_PASSWORD=$db_user_pass
-
-MYSQL_ROOT_PASSWORD=$db_root_pass
+MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
 MYSQL_DATABASE=boleylapanel_db
-MYSQL_USER=boleylapanel_user
-MYSQL_PASSWORD=$db_user_pass
+MYSQL_USER=boleylapanel
+MYSQL_PASSWORD=$MYSQL_PASSWORD
 
-# Database URL
-DATABASE_URL=mysql+pymysql://boleylapanel_user:$db_user_pass@db:3306/boleylapanel_db
-
-# Security
-SECRET_KEY=$secret_key
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-
-# Admin Credentials (for initial setup)
-ADMIN_USERNAME=$admin_user
-ADMIN_PASSWORD=$admin_pass
-ADMIN_EMAIL=$admin_email
+# Application Configuration
+SECRET_KEY=$SECRET_KEY
+PORT=8000
+APP_NAME=boleylapanel
 EOF
 
-    chmod 600 "$ENV_FILE"
-
-    # Save credentials to secure file
-    cat > "$APP_DIR/.credentials" << EOF
-========================================
-   BolelaPanel Installation Info
-========================================
-
-Admin Username: $admin_user
-Admin Password: $admin_pass
-Admin Email:    $admin_email
-
-Database Root Password: $db_root_pass
-Database User Password: $db_user_pass
-
-Secret Key: $secret_key
-
-========================================
-IMPORTANT: Keep this file secure!
-========================================
-EOF
-
-    chmod 400 "$APP_DIR/.credentials"
-
-    colorized_echo green ".env file created"
-    colorized_echo yellow "Credentials saved to: $APP_DIR/.credentials"
+    colorized_echo green ".env file created with random credentials"
 }
 
-# Wait for MySQL
+create_docker_compose() {
+    colorized_echo blue "Creating docker-compose.yml..."
+
+    cat > "$COMPOSE_FILE" << 'EOF'
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: ${APP_NAME:-boleylapanel}-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: boleyla1/boleylapanel-backend:latest
+    container_name: ${APP_NAME:-boleylapanel}-backend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: mysql+aiomysql://${MYSQL_USER}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE}
+      SECRET_KEY: ${SECRET_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app-network
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        sleep 10 &&
+        alembic upgrade head &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000
+      "
+
+volumes:
+  mysql_data:
+
+networks:
+  app-network:
+    driver: bridge
+EOF
+
+    colorized_echo green "docker-compose.yml created successfully"
+}
+
 wait_for_mysql() {
-    colorized_echo yellow "Waiting for MySQL to be ready..."
-
-    local max_attempts=30
-    local attempt=0
-
-    while [ $attempt -lt $max_attempts ]; do
-        if $COMPOSE -f "$COMPOSE_FILE" exec -T db mysqladmin ping -h localhost --silent &>/dev/null; then
+    colorized_echo blue "Waiting for MySQL to be ready..."
+    for i in {1..30}; do
+        if $COMPOSE exec -T db mysqladmin ping -h localhost -u root -p"${MYSQL_ROOT_PASSWORD}" &>/dev/null; then
             colorized_echo green "MySQL is ready!"
             return 0
         fi
-
         echo -n "."
         sleep 2
-        attempt=$((attempt + 1))
     done
-
     colorized_echo red "MySQL failed to start"
     return 1
 }
 
-# Run migrations
-run_migrations() {
-    colorized_echo blue "Running database migrations..."
-
-    if ! $COMPOSE -f "$COMPOSE_FILE" exec -T backend alembic upgrade head; then
-        colorized_echo red "Migration failed!"
-        exit 1
-    fi
-
-    colorized_echo green "Migrations completed"
-}
-
-# Create admin user
 create_admin_user() {
     colorized_echo blue "Creating admin user..."
 
-    $COMPOSE -f "$COMPOSE_FILE" exec -T backend python << 'PYTHON_SCRIPT'
-import sys
-import os
-from sqlalchemy.orm import Session
-from app.db.database import SessionLocal
-from app.models.user import User, UserRole
+    $COMPOSE exec -T backend python << 'PYTHON_SCRIPT'
+from app.db.database import get_db
+from app.models.user import User
 from app.core.security import get_password_hash
+from datetime import datetime
 
-try:
-    db = SessionLocal()
+def create_admin():
+    db = next(get_db())
+    try:
+        admin = db.query(User).filter(User.username == "admin").first()
+        if not admin:
+            admin = User(
+                username="admin",
+                email="admin@example.com",
+                hashed_password=get_password_hash("admin123"),
+                is_active=True,
+                is_superuser=True,
+                created_at=datetime.utcnow()
+            )
+            db.add(admin)
+            db.commit()
+            print("✓ Admin user created: admin/admin123")
+        else:
+            print("✓ Admin user already exists")
+    except Exception as e:
+        print(f"✗ Error: {e}")
+    finally:
+        db.close()
 
-    # Check if admin exists
-    existing_admin = db.query(User).filter(
-        User.username == os.getenv('ADMIN_USERNAME')
-    ).first()
-
-    if existing_admin:
-        print("Admin user already exists")
-        sys.exit(0)
-
-    # Create admin
-    admin = User(
-        username=os.getenv('ADMIN_USERNAME'),
-        email=os.getenv('ADMIN_EMAIL'),
-        hashed_password=get_password_hash(os.getenv('ADMIN_PASSWORD')),
-        role=UserRole.ADMIN,
-        is_active=True,
-        full_name="System Administrator"
-    )
-
-    db.add(admin)
-    db.commit()
-    print(f"Admin user '{admin.username}' created successfully")
-    sys.exit(0)
-
-except Exception as e:
-    print(f"Error creating admin: {e}")
-    sys.exit(1)
-finally:
-    db.close()
+create_admin()
 PYTHON_SCRIPT
 
-    if [ $? -eq 0 ]; then
-        colorized_echo green "Admin user ready"
-    else
-        colorized_echo red "Failed to create admin user"
-        exit 1
-    fi
+    echo "admin:admin123" > "$APP_DIR/.credentials"
+    chmod 600 "$APP_DIR/.credentials"
+
+    colorized_echo green "Admin credentials saved to $APP_DIR/.credentials"
 }
 
-# Install boleylapanel script
-install_boleylapanel_script() {
-    colorized_echo blue "Installing boleylapanel command..."
+install_cli() {
+    colorized_echo blue "Installing CLI tool..."
 
     cat > /usr/local/bin/boleylapanel << 'EOF'
-#!/usr/bin/env bash
-set -e
-
-COMPOSE_FILE="/opt/boleylapanel/docker-compose.yml"
-COMPOSE="docker compose"
-
-case "$1" in
-    up)
-        $COMPOSE -f $COMPOSE_FILE up -d
-        ;;
-    down)
-        $COMPOSE -f $COMPOSE_FILE down
-        ;;
-    restart)
-        $COMPOSE -f $COMPOSE_FILE restart
-        ;;
-    logs)
-        $COMPOSE -f $COMPOSE_FILE logs -f "${@:2}"
-        ;;
-    status)
-        $COMPOSE -f $COMPOSE_FILE ps
-        ;;
-    makemigration)
-        $COMPOSE -f $COMPOSE_FILE exec backend alembic revision --autogenerate -m "${2:-auto}"
-        ;;
-    migrate)
-        $COMPOSE -f $COMPOSE_FILE exec backend alembic upgrade head
-        ;;
-    migration-status)
-        $COMPOSE -f $COMPOSE_FILE exec backend alembic current
-        ;;
-    migration-downgrade)
-        $COMPOSE -f $COMPOSE_FILE exec backend alembic downgrade -1
-        ;;
-    *)
-        echo "Usage: boleylapanel {up|down|restart|logs|status|makemigration|migrate|migration-status|migration-downgrade}"
-        exit 1
-        ;;
-esac
+#!/bin/bash
+cd /opt/boleylapanel && docker compose "$@"
 EOF
 
     chmod +x /usr/local/bin/boleylapanel
-    colorized_echo green "boleylapanel command installed"
+    colorized_echo green "CLI installed: boleylapanel [command]"
 }
 
-# Show success message
-show_success_message() {
-    local ip=$(hostname -I | awk '{print $1}')
-    [ -z "$ip" ] && ip=$(curl -s ifconfig.me 2>/dev/null || echo "your-server-ip")
-
-    cat << EOF
-
-========================================
-  BolelaPanel Installed Successfully!
-========================================
-
-Access Panel:
-  http://$ip:8000
-
-Credentials file:
-  $APP_DIR/.credentials
-
-Useful commands:
-  boleylapanel up              - Start services
-  boleylapanel down            - Stop services
-  boleylapanel restart         - Restart services
-  boleylapanel logs            - View logs
-  boleylapanel status          - Check status
-  boleylapanel migrate         - Run migrations
-  boleylapanel makemigration   - Create new migration
-
-========================================
-EOF
-}
-
-# Main installation
 install_command() {
-    colorized_echo cyan "========================================="
-    colorized_echo cyan "   BolelaPanel Installation Started"
-    colorized_echo cyan "========================================="
-
     check_running_as_root
     detect_os
 
-    # Install dependencies
+    colorized_echo blue "========================================="
+    colorized_echo cyan "   BolelaPanel Installation Started"
+    colorized_echo blue "========================================="
+
     colorized_echo blue "Installing dependencies..."
     install_package "curl"
     install_package "git"
-
-    # Install Docker
     install_docker
     detect_compose
 
-    # Create directories
     colorized_echo blue "Creating directories..."
     mkdir -p "$APP_DIR"
-    mkdir -p "$DATA_DIR"
 
-    # Download project files
-    colorized_echo blue "Downloading project files..."
+    create_env
+    create_docker_compose
+
     cd "$APP_DIR"
 
-    if [ ! -f "docker-compose.yml" ]; then
-        colorized_echo red "Please place docker-compose.yml in $APP_DIR"
-        exit 1
-    fi
+    colorized_echo blue "Starting services..."
+    $COMPOSE up -d
 
-    # Generate .env
-    if [ ! -f "$ENV_FILE" ]; then
-        generate_env_file
-    else
-        colorized_echo yellow ".env file already exists, skipping generation"
-    fi
-
-    # Start services
-    colorized_echo blue "Starting containers..."
-    $COMPOSE -f "$COMPOSE_FILE" up -d
-
-    # Wait for MySQL
     wait_for_mysql || exit 1
 
-    # Run migrations
-    run_migrations
+    colorized_echo blue "Running migrations..."
+    $COMPOSE exec -T backend alembic upgrade head
 
-    # Create admin
     create_admin_user
+    install_cli
 
-    # Install CLI
-    install_boleylapanel_script
-
-    # Success message
-    show_success_message
+    colorized_echo green "========================================="
+    colorized_echo green "✓ Installation completed successfully!"
+    colorized_echo green "========================================="
+    colorized_echo cyan "Access panel at: http://$(curl -s ifconfig.me):8000"
+    colorized_echo cyan "Admin credentials: admin/admin123"
+    colorized_echo yellow "Credentials saved in: $APP_DIR/.credentials"
 }
 
-# Run installation
 install_command
