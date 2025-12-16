@@ -1,40 +1,51 @@
 version: '3.8'
 
 services:
-  mysql:
+  db:  # ⭐ تغییر نام از mysql به db
     image: mysql:8.0
     container_name: boleylapanel-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass123}
       MYSQL_DATABASE: boleyla
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER:-admin}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-adminpass123}
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
       - boleylapanel_network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpass123}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   backend:
     image: boleyla1/boleylapanel-backend:latest
     container_name: boleylapanel-backend
     restart: unless-stopped
     depends_on:
-      mysql:
+      db:
         condition: service_healthy
     environment:
-      DATABASE_URL: mysql+pymysql://admin:${DB_PASSWORD}@boleylapanel-mysql:3306/boleyla
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-admin}:${MYSQL_PASSWORD:-adminpass123}@db:3306/boleyla
+      #                                                                              ^^^
+      #                                                                     اسم سرویس db
     volumes:
       - ./frontend:/app/frontend:ro
     networks:
       - boleylapanel_network
     ports:
       - "8000:8000"
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        sleep 10 &&
+        echo 'Running migrations...' &&
+        alembic upgrade head &&
+        echo 'Starting server...' &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000
+      "
 
 volumes:
   mysql_data:
