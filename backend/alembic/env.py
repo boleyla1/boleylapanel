@@ -1,59 +1,57 @@
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config
+from sqlalchemy import pool
 from alembic import context
 import sys
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+# ========================================
+
+# ========================================
+BASE_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE_DIR))
 
-
-from app.config.settings import settings
+# ========================================
+# Import Settings و Models
+# ========================================
+from app.config import settings
 from app.db.database import Base
+from app.models import *  # Import all models
 
-from app.models.user import User, UserRole
-from app.models.server import Server
-from app.models.config import Config as ConfigModel  # ⭐ تغییر نام
-from app.models.traffic import UserTraffic, TrafficHistory, UserActivityLog
-from app.models.audit_log import AuditLog
+# Alembic Config object
+alembic_config = context.config
 
-
-alembic_config = context.config  # ⭐ تغییر نام
-
+# Interpret the config file for Python logging
 if alembic_config.config_file_name is not None:
     fileConfig(alembic_config.config_file_name)
 
+# Set target metadata
 target_metadata = Base.metadata
 
-
-def get_database_url():
-    """دریافت URL دیتابیس از settings"""
-    return settings.database_url
+# Override sqlalchemy.url from settings
+alembic_config.set_main_option("sqlalchemy.url", settings.database_url)
 
 
-def run_migrations_offline():
+def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = get_database_url()
+    url = alembic_config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
+
     with context.begin_transaction():
         context.run_migrations()
 
 
-def run_migrations_online():
+def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    configuration = alembic_config.get_section(alembic_config.config_ini_section)
-    configuration["sqlalchemy.url"] = get_database_url()
-
     connectable = engine_from_config(
-        configuration,
+        alembic_config.get_section(alembic_config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
-        future=True,
     )
 
     with connectable.connect() as connection:
@@ -61,6 +59,7 @@ def run_migrations_online():
             connection=connection,
             target_metadata=target_metadata
         )
+
         with context.begin_transaction():
             context.run_migrations()
 
