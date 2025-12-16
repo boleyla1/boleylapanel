@@ -4,7 +4,9 @@ from sqlalchemy import pool
 from alembic import context
 import sys
 from pathlib import Path
-
+from app.config import settings
+from app.db.database import Base
+from app.models import *  # Import all models
 # ========================================
 
 # ========================================
@@ -14,9 +16,7 @@ sys.path.insert(0, str(BASE_DIR))
 # ========================================
 # Import Settings و Models
 # ========================================
-from app.config import settings
-from app.db.database import Base
-from app.models import *  # Import all models
+
 
 # Alembic Config object
 alembic_config = context.config
