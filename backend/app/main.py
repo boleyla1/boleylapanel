@@ -1,6 +1,4 @@
 from pathlib import Path
-import os
-import sys
 
 from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,61 +12,15 @@ from app.models import User
 from app.config import settings
 
 # ===============================
-# Fix Windows Console Encoding
+# Path Configuration
 # ===============================
 
-# Set UTF-8 encoding for Windows console
-if sys.platform == 'win32':
-    try:
-        sys.stdout.reconfigure(encoding='utf-8')
-    except Exception:
-        pass
+# /app/app/main.py → parents[1] = /app
+BASE_DIR = Path(__file__).resolve().parents[1]
 
-
-# ===============================
-# Smart Path Configuration (Windows + Linux)
-# ===============================
-
-def get_base_dir():
-    """
-    Automatically detect base directory for both Windows and Linux
-    """
-    current_file = Path(__file__).resolve()
-
-    # Try to find frontend directory by going up the tree
-    for parent_level in range(5):
-        potential_base = current_file.parents[parent_level]
-        frontend_dir = potential_base / "frontend"
-
-        if frontend_dir.exists() and (frontend_dir / "index.html").exists():
-            print(f"[OK] Found frontend at: {frontend_dir}")
-            return potential_base
-
-    # Fallback: check common locations
-    common_paths = [
-        Path("/opt/boleylapanel"),  # Linux VPS
-        Path.cwd().parent,  # Current working directory's parent
-        Path.cwd(),  # Current working directory
-    ]
-
-    for path in common_paths:
-        frontend_dir = path / "frontend"
-        if frontend_dir.exists() and (frontend_dir / "index.html").exists():
-            print(f"[OK] Found frontend at: {frontend_dir}")
-            return path
-
-    # Last resort: use current file's parent
-    print("[WARN] Frontend not found, using default path")
-    return current_file.parents[2]
-
-
-BASE_DIR = get_base_dir()
 FRONTEND_DIR = BASE_DIR / "frontend"
 STATIC_DIR = FRONTEND_DIR / "static"
-
-print(f"[INFO] BASE_DIR: {BASE_DIR}")
-print(f"[INFO] FRONTEND_DIR: {FRONTEND_DIR}")
-print(f"[INFO] index.html exists: {(FRONTEND_DIR / 'index.html').exists()}")
+INDEX_FILE = FRONTEND_DIR / "index.html"
 
 # ===============================
 # FastAPI App
@@ -78,6 +30,8 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     debug=settings.debug,
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
 # ===============================
@@ -92,6 +46,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ===============================
+# API Router
+# ===============================
+
+app.include_router(api_router, prefix="/api/v1")
+
+# ===============================
+# Static Files & SPA
+# ===============================
+
+# Mount static files if exists
+if STATIC_DIR.exists():
+    app.mount(
+        "/static",
+        StaticFiles(directory=STATIC_DIR),
+        name="static",
+    )
+
+# ===============================
+# Root & Health
+# ===============================
+
+@app.get("/")
+async def root():
+    return {
+        "app": settings.app_name,
+        "version": settings.app_version,
+        "environment": settings.app_env,
+        "status": "running",
+    }
+
+@app.get("/ping")
+async def ping():
+    return {"status": "ok"}
+
+@app.get("/api/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "database": settings.db_host,
+        "environment": settings.app_env,
+    }
 
 # ===============================
 # Database Dependency
@@ -104,27 +100,9 @@ def get_db():
     finally:
         db.close()
 
-
 # ===============================
-# API Routes
+# Example DB Route (Test)
 # ===============================
-
-app.include_router(api_router, prefix="/api/v1")
-
-
-@app.get("/ping")
-async def ping():
-    return {"status": "ok"}
-
-
-@app.get("/api/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "database": settings.db_host,
-        "environment": settings.app_env,
-    }
-
 
 @app.get("/api/users")
 def get_users(db: Session = Depends(get_db)):
@@ -140,48 +118,38 @@ def get_users(db: Session = Depends(get_db)):
         for u in users
     ]
 
-
 # ===============================
-# Static Files
-# ===============================
-
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-else:
-    print(f"[WARN] Static directory not found: {STATIC_DIR}")
-
-
-# ===============================
-# HTML Pages
+# SPA Fallback (End of routes)
 # ===============================
 
-@app.get("/{page}.html")
-async def serve_html(page: str):
-    file_path = FRONTEND_DIR / f"{page}.html"
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail=f"Page '{page}.html' not found")
-    return FileResponse(file_path)
+@app.get("/{path:path}")
+async def spa_fallback(path: str):
+    """
+    Serve index.html for SPA routes
+    """
+    # Skip API/docs paths
+    if path.startswith(("api", "docs", "redoc", "static")):
+        raise HTTPException(status_code=404, detail="Not Found")
 
+    # Serve index.html if exists
+    if INDEX_FILE.exists():
+        return FileResponse(INDEX_FILE)
+
+    raise HTTPException(
+        status_code=500,
+        detail="Frontend not built or index.html missing"
+    )
 
 # ===============================
-# Root Route
+# Entrypoint
 # ===============================
 
-@app.get("/")
-async def root():
-    index_path = FRONTEND_DIR / "index.html"
+if __name__ == "__main__":
+    import uvicorn
 
-    if not index_path.exists():
-        return JSONResponse(
-            status_code=500,
-            content={
-                "app": settings.app_name,
-                "version": settings.app_version,
-                "status": "running",
-                "error": "index.html not found",
-                "searched_path": str(index_path),
-                "base_dir": str(BASE_DIR),
-            }
-        )
-
-    return FileResponse(index_path)
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=settings.debug,
+    )

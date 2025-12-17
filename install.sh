@@ -192,7 +192,7 @@ create_env() {
 
 # Database Configuration
 MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
-MYSQL_DATABASE=boleylapanel_db
+MYSQL_DATABASE=boleyla
 MYSQL_USER=boleylapanel
 MYSQL_PASSWORD=$MYSQL_PASSWORD
 
@@ -262,7 +262,7 @@ services:
     ports:
       - "${PORT:-8000}:8000"
     environment:
-      DATABASE_URL: mysql+aiomysql://${MYSQL_USER}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE}
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE}
       SECRET_KEY: ${SECRET_KEY}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       DEBUG: ${DEBUG:-false}
