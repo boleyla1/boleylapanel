@@ -1,22 +1,17 @@
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 import sys
 from pathlib import Path
-from app.config import settings
-from app.db.database import Base
-from app.models import *  # Import all models
-# ========================================
 
-# ========================================
+
 BASE_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE_DIR))
 
-# ========================================
-# Import Settings و Models
-# ========================================
 
+from app.config import settings
+from app.db.database import Base
+from app.models import *
 
 # Alembic Config object
 alembic_config = context.config

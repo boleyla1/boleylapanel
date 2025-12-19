@@ -1,24 +1,30 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  db:  # ⭐ تغییر نام از mysql به db
+  db:
     image: mysql:8.0
-    container_name: boleylapanel-mysql
+    container_name: boleylapanel-db
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass123}
-      MYSQL_DATABASE: boleyla
-      MYSQL_USER: ${MYSQL_USER:-admin}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-adminpass123}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Tehran
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
       - boleylapanel_network
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpass123}"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$MYSQL_ROOT_PASSWORD || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 20
+      start_period: 40s
 
   backend:
     image: boleyla1/boleylapanel-backend:latest
@@ -27,25 +33,23 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    environment:
-      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-admin}:${MYSQL_PASSWORD:-adminpass123}@db:3306/boleyla
-      #                                                                              ^^^
-      #                                                                     اسم سرویس db
-    volumes:
-      - ./frontend:/app/frontend:ro
+    env_file:
+      - .env
+    ports:
+      - "${PORT:-8000}:8000"
     networks:
       - boleylapanel_network
-    ports:
-      - "8000:8000"
     command: >
-      sh -c "
-        echo 'Waiting for database...' &&
-        sleep 10 &&
-        echo 'Running migrations...' &&
-        alembic upgrade head &&
-        echo 'Starting server...' &&
-        uvicorn app.main:app --host 0.0.0.0 --port 8000
-      "
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --log-level info
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
 volumes:
   mysql_data:
