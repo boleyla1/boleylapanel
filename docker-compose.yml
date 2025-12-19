@@ -14,7 +14,7 @@ services:
       - boleylapanel
 
   backend:
-    image: ghcr.io/boleyla1/boleylapanel:latest
+    image: boleyla1/boleylapanel:latest
     container_name: boleylapanel-backend
     restart: unless-stopped
     env_file:
