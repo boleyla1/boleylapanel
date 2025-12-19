@@ -8,34 +8,28 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-      TZ: Asia/Tehran
     volumes:
-      - mysql_data:/var/lib/mysql
+      - db_data:/var/lib/mysql
     networks:
-      - boleylapanel_app-network
-    command:
-      - --default-authentication-plugin=mysql_native_password
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
-
-    # ✅ optional, non-blocking healthcheck
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 20
-      start_period: 60s
+      - boleylapanel
 
   backend:
-    image: boleyla1/boleylapanel-backend:latest
+    image: ghcr.io/boleyla1/boleylapanel:latest
     container_name: boleylapanel-backend
     restart: unless-stopped
     env_file:
       - .env
+    ports:
+      - "${APP_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_started
-    ports:
-      - "${PORT:-8000}:8000"
     networks:
-      - boleylapanel_app-network
+      - boleylapanel
+
+volumes:
+  db_data:
+
+networks:
+  boleylapanel:
+    driver: bridge
