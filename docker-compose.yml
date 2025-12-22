@@ -1,35 +1,56 @@
+version: '3.8'
+
 services:
   db:
     image: mysql:8.0
     container_name: boleylapanel-db
     restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-    volumes:
-      - db_data:/var/lib/mysql
     networks:
       - boleylapanel
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-secret_root_password}
+      MYSQL_DATABASE: ${DB_NAME:-boleylapanel}
+      MYSQL_USER: ${DB_USER:-boleyla}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-secret_password}
+    volumes:
+      - db_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   backend:
     image: boleyla1/boleylapanel:latest
     container_name: boleylapanel-backend
     restart: unless-stopped
-    env_file:
-      - .env
-    ports:
-      - "${APP_PORT:-8000}:8000"
-    depends_on:
-      db:
-        condition: service_started
     networks:
       - boleylapanel
-
-volumes:
-  db_data:
+    ports:
+      - "8000:8000"
+    environment:
+      # ✅ این مهمه: استفاده از نام سرویس (db)
+      DATABASE_URL: "mysql+pymysql://${DB_USER:-boleyla}:${DB_PASSWORD:-secret_password}@db:3306/${DB_NAME:-boleylapanel}"
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-boleylapanel}
+      DB_USER: ${DB_USER:-boleyla}
+      DB_PASSWORD: ${DB_PASSWORD:-secret_password}
+    env_file:
+      - .env
+    volumes:
+      - backend_data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
 
 networks:
   boleylapanel:
     driver: bridge
+
+volumes:
+  db_data:
+  backend_data:
